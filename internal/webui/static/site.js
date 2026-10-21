@@ -3,7 +3,7 @@
 
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
-  const BASE = location.origin;
+  const BASE = window.__REL_BASE__ || "./";
   const isEN = () => window.__LANG === "en" || document.documentElement.lang === "en";
   const T = (zh, en) => (isEN() ? en : zh);
 
@@ -64,7 +64,7 @@
     const status = $("#service-status");
     if (!status) return;
     try {
-      const res = await fetch(BASE + "/api/v1/health", { cache: "no-store" });
+      const res = await fetch(BASE + "api/v1/health", { cache: "no-store" });
       if (!res.ok) throw new Error("HTTP " + res.status);
       const payload = await res.json();
       const games = payload?.data?.games ?? 7;

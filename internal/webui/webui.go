@@ -24,6 +24,7 @@ type PageData struct {
 	Active      string
 	Page        string
 	Version     string
+	RelBase     string
 	Games       []game.Meta
 	Game        *game.Meta
 	GameDoc     *GameDoc
@@ -36,11 +37,14 @@ type PageData struct {
 
 // Renderer owns the parsed template set and embedded assets.
 type Renderer struct {
-	tpl *template.Template
+	tpl      *template.Template
+	basePath string
 }
 
-// New parses every embedded template.
-func New() (*Renderer, error) {
+// New parses every embedded template. The optional basePath is the context
+// path configured for the server, such as "/auto-chess".
+func New(basePath ...string) (*Renderer, error) {
+	r := &Renderer{basePath: normalizeBasePath(firstString(basePath))}
 	funcs := template.FuncMap{
 		"icon":        gameIcon,
 		"compactJSON": compactJSON,
@@ -60,7 +64,31 @@ func New() (*Renderer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse templates: %w", err)
 	}
-	return &Renderer{tpl: tpl}, nil
+	r.tpl = tpl
+	return r, nil
+}
+
+// BasePath returns the normalized context path, without a trailing slash.
+func (r *Renderer) BasePath() string {
+	return r.basePath
+}
+
+func firstString(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
+}
+
+func normalizeBasePath(base string) string {
+	base = strings.TrimSpace(base)
+	if base == "" || base == "/" {
+		return ""
+	}
+	if !strings.HasPrefix(base, "/") {
+		base = "/" + base
+	}
+	return strings.TrimRight(base, "/")
 }
 
 // Render executes a page template and then the shared layout.
@@ -71,6 +99,9 @@ func (r *Renderer) Render(w io.Writer, page string, data PageData) error {
 	if data.Lang == "" {
 		data.Lang = "zh"
 	}
+	if data.RelBase == "" {
+		data.RelBase = "./"
+	}
 	var body bytes.Buffer
 	if err := r.tpl.ExecuteTemplate(&body, page, data); err != nil {
 		return fmt.Errorf("render page %s: %w", page, err)
@@ -80,12 +111,53 @@ func (r *Renderer) Render(w io.Writer, page string, data PageData) error {
 	if err := r.tpl.ExecuteTemplate(&full, "layout", data); err != nil {
 		return fmt.Errorf("render layout for %s: %w", page, err)
 	}
+	rendered := relativizeHTML(full.String(), data.RelBase)
 	if NormalizeLang(data.Lang) == "en" {
-		_, err := io.WriteString(w, LocalizeHTML(full.String()))
+		_, err := io.WriteString(w, LocalizeHTML(rendered))
 		return err
 	}
-	_, err := io.Copy(w, &full)
+	_, err := io.WriteString(w, rendered)
 	return err
+}
+
+// relativizeHTML turns root-relative page links into paths relative to the
+// current page, so the site keeps working when the server context path changes.
+func relativizeHTML(rendered, relBase string) string {
+	if relBase == "" {
+		relBase = "./"
+	}
+	rendered = strings.ReplaceAll(rendered, `href="/`, `href="`+relBase)
+	rendered = strings.ReplaceAll(rendered, `src="/`, `src="`+relBase)
+	rendered = strings.ReplaceAll(rendered, `action="/`, `action="`+relBase)
+	return rendered
+}
+
+// RelativeBase returns the prefix that points from a page path back to the
+// application root, for example "./" for /play and "../" for /games/xiangqi.
+func RelativeBase(pagePath, contextPath string) string {
+	path := pagePath
+	if contextPath = normalizeBasePath(contextPath); contextPath != "" {
+		switch {
+		case path == contextPath:
+			path = ""
+		case strings.HasPrefix(path, contextPath+"/"):
+			path = strings.TrimPrefix(path, contextPath)
+		}
+	}
+	trailing := strings.HasSuffix(path, "/")
+	path = strings.Trim(path, "/")
+	segments := 0
+	if path != "" {
+		segments = strings.Count(path, "/") + 1
+		if trailing {
+			segments++
+		}
+	}
+	up := segments - 1
+	if up <= 0 {
+		return "./"
+	}
+	return strings.Repeat("../", up)
 }
 
 // Asset reads an embedded static file.

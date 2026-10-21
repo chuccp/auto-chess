@@ -2,7 +2,7 @@
   "use strict";
 
   const $ = (sel, root = document) => root.querySelector(sel);
-  const BASE = location.origin;
+  const BASE = window.__REL_BASE__ || "./";
   const isEN = () => window.__LANG === "en" || document.documentElement.lang === "en";
   const T = (zh, en) => (isEN() ? en : zh);
   const EN_COLORS = { w: "White", b: "Black", r: "Red", y: "Yellow" };
@@ -1030,7 +1030,7 @@
     pushSnapshot();
     renderStatus();
     try {
-      const data = await api("/api/v1/apply-move", {
+      const data = await api("api/v1/apply-move", {
         game: state.meta.id,
         position: positionPayload(state.position),
         move: moveInput(move),
@@ -1069,7 +1069,7 @@
         return;
       }
       pushSnapshot();
-      const data = await api("/api/v1/apply-move", {
+      const data = await api("api/v1/apply-move", {
         game: state.meta.id,
         position: positionPayload(state.position),
         move: moveInput(result.move),
@@ -1106,12 +1106,12 @@
 
   async function aiMoveNormal(body) {
     setAIProgress(T("AI 思考中", "AI is thinking"), T("普通接口请求中…", "Normal request in flight..."), true);
-    return api("/api/v1/move", body);
+    return api("api/v1/move", body);
   }
 
   async function aiMoveStream(body) {
     setAIProgress(T("AI 思考中", "AI is thinking"), T("连接 SSE…", "Connecting to SSE..."), true);
-    const res = await fetch(BASE + "/api/v1/move/stream", {
+    const res = await fetch(BASE + "api/v1/move/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),

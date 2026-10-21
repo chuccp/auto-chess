@@ -2,7 +2,7 @@
 web:
   server:
     port: 8090
-    context_path: ""
+    contextPath: auto-chess
     max_body_size: 1048576 # 1 MiB，棋盘请求足够
     read_timeout: 30
   log:

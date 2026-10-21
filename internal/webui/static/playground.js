@@ -3,7 +3,7 @@
 
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
-  const BASE = location.origin;
+  const BASE = window.__REL_BASE__ || "./";
   const isEN = () => window.__LANG === "en" || document.documentElement.lang === "en";
   const T = (zh, en) => (isEN() ? en : zh);
   const HISTORY_KEY = "auto-chess.playground.history.v1";
@@ -288,7 +288,7 @@
     let httpStatus = 0;
     let payload;
     try {
-      const res = await fetch(BASE + "/api/v1/move", {
+      const res = await fetch(BASE + "api/v1/move", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
@@ -329,7 +329,7 @@
     const started = performance.now();
     let finished = false;
     try {
-      const res = await fetch(BASE + "/api/v1/move/stream", {
+      const res = await fetch(BASE + "api/v1/move/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request),
@@ -486,7 +486,7 @@
         showToast(T("请求 JSON 尚不合法", "Request JSON is not valid yet"));
         return;
       }
-      copyText(`curl -X POST ${BASE}/api/v1/move \\\n  -H "Content-Type: application/json" \\\n  -d '${body}'`);
+      copyText(`curl -X POST ${new URL(BASE + "api/v1/move", location.href).href} \\\n  -H "Content-Type: application/json" \\\n  -d '${body}'`);
     });
     el.clearHistory?.addEventListener("click", () => {
       state.history = [];

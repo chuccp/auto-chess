@@ -23,10 +23,17 @@ import (
 const testPort = "19009"
 
 func newTestServer(t *testing.T) *httptest.Server {
+	return newTestServerWithContext(t, "")
+}
+
+func newTestServerWithContext(t *testing.T, contextPath string) *httptest.Server {
 	t.Helper()
 	cfg := config.LoadAutoConfig()
 	cfg.Put("web.server.port", 19009)
-	renderer, err := webui.New()
+	if contextPath != "" {
+		cfg.Put("web.server.contextPath", contextPath)
+	}
+	renderer, err := webui.New(contextPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,7 +289,7 @@ func TestDefaultThemeAndLanguageSwitch(t *testing.T) {
 	body, _ := io.ReadAll(res.Body)
 	res.Body.Close()
 	page := string(body)
-	for _, want := range []string{`data-theme="light"`, `id="theme-toggle"`, `class="lang-btn"`, `href="/?lang=en"`} {
+	for _, want := range []string{`data-theme="light"`, `id="theme-toggle"`, `class="lang-btn"`, `href="./?lang=en"`} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("default page missing %q", want)
 		}
@@ -306,7 +313,7 @@ func TestDefaultThemeAndLanguageSwitch(t *testing.T) {
 	if got := enRes.Header.Get("Content-Language"); got != "en" {
 		t.Fatalf("content language = %q", got)
 	}
-	for _, want := range []string{`<html lang="en"`, "AI Move API", `href="/?lang=zh"`} {
+	for _, want := range []string{`<html lang="en"`, "AI Move API", `href="./?lang=zh"`} {
 		if !strings.Contains(enPage, want) {
 			t.Fatalf("english page missing %q", want)
 		}
@@ -421,6 +428,54 @@ func TestServerRenderedPages(t *testing.T) {
 		if res.StatusCode != 200 {
 			t.Fatalf("%s status = %d", asset, res.StatusCode)
 		}
+	}
+}
+
+func TestContextPath(t *testing.T) {
+	srv := newTestServerWithContext(t, "/auto-chess")
+	defer srv.Close()
+
+	res := doRequest(t, http.MethodGet, srv.URL+"/auto-chess/api/v1/health", nil)
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("prefixed health status = %d", res.StatusCode)
+	}
+	res = doRequest(t, http.MethodGet, srv.URL+"/api/v1/health", nil)
+	res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("root health status = %d, want 404", res.StatusCode)
+	}
+
+	res = doRequest(t, http.MethodGet, srv.URL+"/auto-chess/play", nil)
+	body, err := io.ReadAll(res.Body)
+	res.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("prefixed play status = %d", res.StatusCode)
+	}
+	page := string(body)
+	for _, want := range []string{
+		`href="./assets/app.css`,
+		`href="./play`,
+		`window.__REL_BASE__`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("prefixed page does not contain %q", want)
+		}
+	}
+	if strings.Contains(page, `href="/auto-chess`) {
+		t.Fatal("prefixed page hard-codes the context path in an href")
+	}
+	if strings.Contains(page, "/auto-chess/auto-chess") {
+		t.Fatal("prefixed page contains a double context path")
+	}
+
+	res = doRequest(t, http.MethodGet, srv.URL+"/auto-chess/assets/app.css", nil)
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("prefixed asset status = %d", res.StatusCode)
 	}
 }
 

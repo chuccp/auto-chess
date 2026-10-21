@@ -18,9 +18,9 @@
 - 默认亮色主题；导航可切换亮色 / 深色并记住选择
 - 中文 / English 切换，页面、导航、棋种说明和接口文档均会切换语言
 
-> 演示地址（本地服务启动后）：<http://127.0.0.1:8090/>
+> 演示地址（本地服务启动后）：<http://127.0.0.1:8090/auto-chess/>
 
-> 主要页面：`/` 首页 · `/guide` 接入指南 · `/docs` 接口参考 · `/docs/stream` SSE · `/games` 棋种 · `/play` 在线对弈 · `/playground` 调试器
+> 主要页面：`/auto-chess/` 首页 · `/auto-chess/guide` 接入指南 · `/auto-chess/docs` 接口参考 · `/auto-chess/docs/stream` SSE · `/auto-chess/games` 棋种 · `/auto-chess/play` 在线对弈 · `/auto-chess/playground` 调试器
 
 > 这不是完整的对局平台：没有房间、账号、在线匹配或服务端会话；对弈记录仅保存在当前浏览器。
 
@@ -37,23 +37,25 @@ go run .
 
 启动后：
 
-- 首页：<http://127.0.0.1:8090/>
-- API 文档：<http://127.0.0.1:8090/docs>
-- 调试器：<http://127.0.0.1:8090/playground>
-- 健康检查：<http://127.0.0.1:8090/api/v1/health>
-- 棋种目录：<http://127.0.0.1:8090/api/v1/games>
+- 首页：<http://127.0.0.1:8090/auto-chess/>
+- API 文档：<http://127.0.0.1:8090/auto-chess/docs>
+- 调试器：<http://127.0.0.1:8090/auto-chess/playground>
+- 健康检查：<http://127.0.0.1:8090/auto-chess/api/v1/health>
+- 棋种目录：<http://127.0.0.1:8090/auto-chess/api/v1/games>
 
-端口在 `application.yml` 中配置，也可以用环境变量覆盖：
+端口和 `contextPath` 在 `application.yml` 中配置，也可以用环境变量覆盖：
 
 ```bash
-PORT=9000 go run .
+PORT=9000 CONTEXT_PATH=games go run .
 ```
 
 Windows PowerShell：
 
 ```powershell
-$env:PORT=9000; go run .
+$env:PORT=9000; $env:CONTEXT_PATH="games"; go run .
 ```
+
+页面里的资源、导航和 API 调用都使用相对路径；修改 `contextPath` 后不需要改模板或 JS。默认值为 `auto-chess`。
 
 ### 多页面站点
 
@@ -61,14 +63,14 @@ $env:PORT=9000; go run .
 
 | 路径 | 页面 |
 |---|---|
-| `/` | 首页 |
-| `/guide` | 快速开始 / 接入指南 |
-| `/docs` | 接口参考 |
-| `/docs/stream` | SSE 流式思考 |
-| `/games` | 棋种目录 |
-| `/games/{game}` | 棋种详情：规则、坐标、初始局面、独立接口详解与示例 |
-| `/play` | 在线对弈：人机轮流落子、本机保存记录 |
-| `/playground` | 请求调试器（普通 + SSE） |
+| `/auto-chess/` | 首页 |
+| `/auto-chess/guide` | 快速开始 / 接入指南 |
+| `/auto-chess/docs` | 接口参考 |
+| `/auto-chess/docs/stream` | SSE 流式思考 |
+| `/auto-chess/games` | 棋种目录 |
+| `/auto-chess/games/{game}` | 棋种详情：规则、坐标、初始局面、独立接口详解与示例 |
+| `/auto-chess/play` | 在线对弈：人机轮流落子、本机保存记录 |
+| `/auto-chess/playground` | 请求调试器（普通 + SSE） |
 
 页面数据直接来自 `internal/registry`，模板与静态资源通过 `embed` 内置，不需要单独部署前端文件。布局为响应式，对弈棋盘、侧栏和导航在手机宽度下会自动重排和缩放。
 
@@ -77,6 +79,8 @@ $env:PORT=9000; go run .
 ---
 
 ## 核心接口
+
+> 下文以 `/api/v1/...` 表示相对 `contextPath` 的 API 路径。默认 `contextPath: auto-chess`，实际地址为 `/auto-chess/api/v1/...`。
 
 ### `POST /api/v1/move`
 
@@ -341,6 +345,7 @@ GET /api/v1/move/stream?payload=%7B%22game%22%3A%22gomoku%22%2C...%7D
 web:
   server:
     port: 8090
+    contextPath: auto-chess
     max_body_size: 1048576
     read_timeout: 30
   log:
@@ -350,7 +355,9 @@ web:
 环境变量：
 
 - `PORT`：覆盖端口
-- `CONTEXT_PATH`：给所有路由加前缀，例如 `/auto-chess`
+- `CONTEXT_PATH`：覆盖 contextPath，例如 `/games` 或 `games`
+
+页面链接、静态资源和前端 API 请求都按当前页面深度生成相对路径，因此修改 `contextPath` 后无需修改模板或 JS。
 
 跨域：全局 `CORSFilter` 对所有已注册接口统一加头（包括普通 JSON、SSE、错误响应和静态文档资源），`OPTIONS` 预检返回 `204`。默认允许 `*`，并允许 `Last-Event-ID`，便于 EventSource 重连。
 

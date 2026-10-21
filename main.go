@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -28,16 +29,22 @@ func main() {
 			cfg.Put("web.server.port", port)
 		}
 	}
+	basePath := strings.TrimSpace(cfg.GetString("web.server.contextPath"))
+	if basePath == "" {
+		basePath = strings.TrimSpace(cfg.GetString("web.server.context_path"))
+	}
 	if raw := os.Getenv("CONTEXT_PATH"); raw != "" {
-		cfg.Put("web.server.context_path", raw)
+		basePath = raw
+		cfg.Put("web.server.contextPath", raw)
 	}
 
 	reg := registry.New()
-	renderer, err := webui.New()
+	renderer, err := webui.New(basePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "加载页面模板失败：%v\n", err)
 		os.Exit(1)
 	}
+	basePath = renderer.BasePath()
 	app := wf.NewBuilder(cfg).
 		Filter(&api.CORSFilter{}).
 		Filter(&api.RecoveryFilter{}).
@@ -45,11 +52,12 @@ func main() {
 		Build()
 
 	port := cfg.GetIntOrDefault("web.server.port", 19009)
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d%s", port, basePath)
 	fmt.Printf("auto-chess AI 服务已启动\n")
-	fmt.Printf("  首页:   http://127.0.0.1:%d/\n", port)
-	fmt.Printf("  文档:   http://127.0.0.1:%d/docs\n", port)
-	fmt.Printf("  走子:   POST http://127.0.0.1:%d/api/v1/move\n", port)
-	fmt.Printf("  流式:   GET/POST http://127.0.0.1:%d/api/v1/move/stream\n", port)
+	fmt.Printf("  首页:   %s/\n", baseURL)
+	fmt.Printf("  文档:   %s/docs\n", baseURL)
+	fmt.Printf("  走子:   POST %s/api/v1/move\n", baseURL)
+	fmt.Printf("  流式:   GET/POST %s/api/v1/move/stream\n", baseURL)
 	fmt.Printf("  引擎:   chess=chess-3, xiangqi=godogpaw（纯 Go）\n")
 	fmt.Printf("  棋类:   %d 种（%v）\n", len(reg.List()), reg.IDs())
 

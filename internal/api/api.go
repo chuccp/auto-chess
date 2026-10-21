@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"runtime/debug"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/chuccp/auto-chess/internal/game"
@@ -620,7 +621,19 @@ func (c *Controller) renderPage(req *web.Request, status int, page string, data 
 	lang := pageLang(req)
 	data.Lang = lang
 	data.OtherLang = webui.OtherLang(lang)
-	data.LangURL = webui.LangSwitchURL(req.URL(), lang)
+	data.RelBase = webui.RelativeBase(req.URL().Path, c.Renderer.BasePath())
+	langURL := *req.URL()
+	if contextPath := c.Renderer.BasePath(); contextPath != "" {
+		langURL.Path = strings.TrimPrefix(langURL.Path, contextPath)
+	}
+	langPath := strings.TrimPrefix(langURL.Path, "/")
+	if langPath == "" {
+		langPath = "./"
+	} else {
+		langPath = data.RelBase + langPath
+	}
+	langURL.Path = langPath
+	data.LangURL = webui.LangSwitchURL(&langURL, lang)
 	var buf bytes.Buffer
 	if err := c.Renderer.Render(&buf, page, data); err != nil {
 		log.Error("render page", zap.String("page", page), zap.Error(err))

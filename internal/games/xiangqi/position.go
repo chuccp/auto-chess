@@ -452,10 +452,10 @@ func (p *Position) inCheck(side int8) bool {
 }
 
 func (p *Position) legalMoves() []move {
-	pseudo := p.pseudoMoves()
+	moves := p.pseudoMoves()
 	side := p.Turn
-	out := make([]move, 0, len(pseudo))
-	for _, m := range pseudo {
+	out := moves[:0]
+	for _, m := range moves {
 		u := p.doMove(m)
 		if !p.inCheck(side) {
 			out = append(out, m)

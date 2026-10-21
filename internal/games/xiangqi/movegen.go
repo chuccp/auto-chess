@@ -1,7 +1,5 @@
 package xiangqi
 
-import "sort"
-
 var orthogonal = [][2]int{{0, 1}, {1, 0}, {0, -1}, {-1, 0}}
 var diagonal = [][2]int{{1, 1}, {1, -1}, {-1, -1}, {-1, 1}}
 var knightMoves = [][2]int{
@@ -377,16 +375,28 @@ func isAttacked(board [Size]int8, sq int, by int8) bool {
 	return false
 }
 
-func orderMoves(st *State, moves []move) {
-	sort.SliceStable(moves, func(i, j int) bool {
-		return moveScore(st, moves[i]) > moveScore(st, moves[j])
-	})
+func orderMoves(st *State, moves []move, history *[2][Size][Size]int32) {
+	for i := 1; i < len(moves); i++ {
+		m := moves[i]
+		score := moveScore(st, m, history)
+		j := i - 1
+		for ; j >= 0 && moveScore(st, moves[j], history) < score; j-- {
+			moves[j+1] = moves[j]
+		}
+		moves[j+1] = m
+	}
 }
 
-func moveScore(st *State, m move) int {
+func moveScore(st *State, m move, history *[2][Size][Size]int32) int {
 	score := 0
 	if target := st.Board[m.To]; target != 0 {
 		score += 1000 + pieceValue[absPiece(target)]*10 - pieceValue[absPiece(st.Board[m.From])]
+	} else if history != nil {
+		side := 0
+		if st.Turn == Black {
+			side = 1
+		}
+		score += int(history[side][m.From][m.To])
 	}
 	// Prefer central and forward moves slightly.
 	file := m.To % Files

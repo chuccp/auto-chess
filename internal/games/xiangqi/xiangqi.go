@@ -262,7 +262,7 @@ func (g *Game) searchBuiltin(ctx context.Context, pos game.Position, opts game.S
 	}
 	evalCache := make(map[uint64]int)
 	tables := &searchTables{eval: evalCache, tt: make(map[uint64]ttEntry)}
-	orderMoves(st, rootMoves)
+	orderMoves(st, rootMoves, &tables.history)
 	best := rootMoves[0]
 	bestScore := 0
 	reached := 0
@@ -443,7 +443,7 @@ func (g *Game) negamax(st *State, depth, alpha, beta, ply int, nodes *int64, dea
 	if entry, ok := tables.tt[key]; ok && (entry.best != move{}) {
 		moves = moveToFront(moves, entry.best)
 	}
-	orderMoves(st, moves)
+	orderMoves(st, moves, &tables.history)
 	if depth >= 3 && !inCheck(st, st.Turn) && hasNonPawnMaterial(st, st.Turn) {
 		nullState := makeNull(st)
 		score := -g.negamax(nullState, depth-3, -beta, -beta+1, ply+1, nodes, deadline, ctx, timedOut, acc, tables)
@@ -478,6 +478,13 @@ func (g *Game) negamax(st *State, depth, alpha, beta, ply int, nodes *int64, dea
 			alpha = score
 		}
 		if alpha >= beta {
+			if st.Board[m.To] == 0 {
+				side := 0
+				if st.Turn == Black {
+					side = 1
+				}
+				tables.history[side][m.From][m.To] += int32(depth * depth)
+			}
 			break
 		}
 		if *timedOut {
@@ -520,7 +527,7 @@ func (g *Game) quiesce(st *State, alpha, beta, ply int, nodes *int64, deadline t
 			return alpha
 		}
 	}
-	orderMoves(st, moves)
+	orderMoves(st, moves, &tables.history)
 	best := -mateScore * 2
 	for _, m := range moves {
 		if !check && st.Board[m.To] != 0 && stand+pieceValue[absPiece(st.Board[m.To])]+100 <= alpha {
@@ -539,6 +546,13 @@ func (g *Game) quiesce(st *State, alpha, beta, ply int, nodes *int64, deadline t
 			alpha = score
 		}
 		if alpha >= beta {
+			if st.Board[m.To] == 0 {
+				side := 0
+				if st.Turn == Black {
+					side = 1
+				}
+				tables.history[side][m.From][m.To]++
+			}
 			break
 		}
 	}
@@ -556,8 +570,9 @@ type ttEntry struct {
 }
 
 type searchTables struct {
-	eval map[uint64]int
-	tt   map[uint64]ttEntry
+	eval    map[uint64]int
+	tt      map[uint64]ttEntry
+	history [2][Size][Size]int32
 }
 
 func (t *searchTables) probe(key uint64, depth, alpha, beta int) (int, bool) {

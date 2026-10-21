@@ -65,7 +65,11 @@ func (s stack) propagate(transformed [ftHalf]uint8) int32 {
 		concat[fc0Outputs+i] = uint8(clamp(int(fc0[i])>>weightScale, 0, 127))
 	}
 	var fc1 [fc1Outputs]int32
-	s.fc1.forwardInto(concat[:], fc1[:])
+	if useAVX2 && len(s.fc1.weights) == fc1Inputs*fc1Outputs && len(s.fc1.bias) >= fc1Outputs {
+		fc1AVX2(&concat[0], &s.fc1.weights[0], &s.fc1.bias[0], &fc1[0])
+	} else {
+		s.fc1.forwardInto(concat[:], fc1[:])
+	}
 	var ac1 [fc1Outputs]uint8
 	for i, v := range fc1 {
 		ac1[i] = uint8(clamp(int(v)>>weightScale, 0, 127))

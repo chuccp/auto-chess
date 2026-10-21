@@ -158,3 +158,32 @@ delta2Loop:
 	JLT delta2Loop
 	VZEROUPPER
 	RET
+
+// func fc1AVX2(input *uint8, weights *int8, bias *int32, out *int32)
+TEXT ·fc1AVX2(SB), NOSPLIT, $0-32
+	MOVQ input+0(FP), SI
+	MOVQ weights+8(FP), DI
+	MOVQ bias+16(FP), BX
+	MOVQ out+24(FP), DX
+	XORQ R9, R9
+fc1Loop:
+	VMOVDQU (SI), Y1
+	MOVQ R9, AX
+	SHLQ $5, AX
+	VPMADDUBSW (DI)(AX*1), Y1, Y2
+	VPMADDWD ·avxOnes<>(SB), Y2, Y2
+	VEXTRACTI128 $1, Y2, X1
+	VPADDD X1, X2, X2
+	VPSHUFD $0x4E, X2, X1
+	VPADDD X1, X2, X2
+	VPSHUFD $0xB1, X2, X1
+	VPADDD X1, X2, X2
+	VMOVD X2, R11
+	MOVL (BX)(R9*4), R12
+	ADDL R12, R11
+	MOVL R11, (DX)(R9*4)
+	INCQ R9
+	CMPQ R9, $32
+	JLT fc1Loop
+	VZEROUPPER
+	RET

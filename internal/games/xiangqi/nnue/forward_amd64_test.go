@@ -100,3 +100,36 @@ func TestTransformAVX2(t *testing.T) {
 		}
 	}
 }
+
+func TestFC1AVX2MatchesScalar(t *testing.T) {
+	if !useAVX2 {
+		t.Skip("AVX2 unavailable")
+	}
+	rng := rand.New(rand.NewSource(4))
+	var input [fc1Inputs]uint8
+	for i := range input {
+		input[i] = uint8(rng.Intn(128))
+	}
+	weights := make([]int8, fc1Inputs*fc1Outputs)
+	for i := range weights {
+		weights[i] = int8(rng.Intn(256) - 128)
+	}
+	bias := make([]int32, fc1Outputs)
+	for i := range bias {
+		bias[i] = int32(rng.Intn(2001) - 1000)
+	}
+	want := make([]int32, fc1Outputs)
+	copy(want, bias)
+	for o := 0; o < fc1Outputs; o++ {
+		for i, v := range input {
+			want[o] += int32(weights[o*fc1Inputs+i]) * int32(v)
+		}
+	}
+	got := make([]int32, fc1Outputs)
+	fc1AVX2(&input[0], &weights[0], &bias[0], &got[0])
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("output %d: got %d want %d", i, got[i], want[i])
+		}
+	}
+}

@@ -42,3 +42,29 @@ func TestFC0AVX2MatchesScalar(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyDeltaAVX2(t *testing.T) {
+	if !useAVX2 {
+		t.Skip("AVX2 unavailable")
+	}
+	rng := rand.New(rand.NewSource(2))
+	values := make([]int32, ftHalf)
+	want := make([]int32, ftHalf)
+	for i := range values {
+		values[i] = int32(rng.Intn(2001) - 1000)
+		want[i] = values[i]
+	}
+	add := make([]int16, ftHalf)
+	remove := make([]int16, ftHalf)
+	for i := range add {
+		add[i] = int16(rng.Intn(2001) - 1000)
+		remove[i] = int16(rng.Intn(2001) - 1000)
+		want[i] += int32(add[i]) - int32(remove[i])
+	}
+	applyDeltaAVX2(&values[0], &add[0], &remove[0], ftHalf)
+	for i := range want {
+		if values[i] != want[i] {
+			t.Fatalf("index %d: got %d want %d", i, values[i], want[i])
+		}
+	}
+}

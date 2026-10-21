@@ -45,3 +45,22 @@ inner:
 	JLT outer
 	VZEROUPPER
 	RET
+
+// func applyDeltaAVX2(values *int32, add, remove *int16, n int)
+TEXT ·applyDeltaAVX2(SB), NOSPLIT, $0-32
+	MOVQ values+0(FP), DI
+	MOVQ add+8(FP), SI
+	MOVQ remove+16(FP), BX
+	MOVQ n+24(FP), CX
+	XORQ AX, AX
+loop:
+	VPMOVSXWD (SI)(AX*2), Y0
+	VPMOVSXWD (BX)(AX*2), Y1
+	VPSUBD Y1, Y0, Y0
+	VPADDD (DI)(AX*4), Y0, Y0
+	VMOVDQU Y0, (DI)(AX*4)
+	ADDQ $8, AX
+	CMPQ AX, CX
+	JLT loop
+	VZEROUPPER
+	RET

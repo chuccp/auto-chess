@@ -206,8 +206,12 @@ func (n *Network) applyDelta(values *[ftHalf]int32, psqt *[psqtBuckets]int32, ad
 	if len(add) == 1 && len(remove) == 1 {
 		ab := add[0] * ftHalf
 		rb := remove[0] * ftHalf
-		for j := 0; j < ftHalf; j++ {
-			values[j] += int32(n.weights[ab+j]) - int32(n.weights[rb+j])
+		if useAVX2 {
+			applyDeltaAVX2(&values[0], &n.weights[ab], &n.weights[rb], ftHalf)
+		} else {
+			for j := 0; j < ftHalf; j++ {
+				values[j] += int32(n.weights[ab+j]) - int32(n.weights[rb+j])
+			}
 		}
 		ap := add[0] * psqtBuckets
 		rp := remove[0] * psqtBuckets

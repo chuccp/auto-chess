@@ -5,7 +5,9 @@ package xiangqi
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/chuccp/auto-chess/internal/game"
@@ -51,12 +53,13 @@ type move struct{ From, To int }
 
 // Game implements game.Game.
 type Game struct {
-	native bool
-	nnue   *nnue.Network
+	native  bool
+	nnue    *nnue.Network
+	threads int
 }
 
 // New returns a xiangqi engine backed by the built-in search.
-func New() *Game { return &Game{} }
+func New() *Game { return &Game{threads: 1} }
 
 // NewWithNNUE loads a Pikafish 2024 .nnue file and uses it for leaf evaluation.
 func NewWithNNUE(path string) (*Game, error) {
@@ -64,7 +67,14 @@ func NewWithNNUE(path string) (*Game, error) {
 	if err != nil {
 		return nil, err
 	}
-	g := &Game{nnue: net}
+	threads := runtime.GOMAXPROCS(0)
+	if threads > 8 {
+		threads = 8
+	}
+	if threads < 1 {
+		threads = 1
+	}
+	g := &Game{nnue: net, threads: threads}
 	return g, nil
 }
 
@@ -268,20 +278,30 @@ func (g *Game) searchBuiltin(ctx context.Context, pos game.Position, opts game.S
 		localBest := rootMoves[0]
 		localScore := 0
 		complete := true
-		for i, m := range rootMoves {
-			child := makeMove(st, m)
-			childAcc := nextAccumulator(g.nnue, rootAcc, st.Board, m)
-			score := -g.negamax(child, d-1, -beta, -alpha, 1, &nodes, deadline, ctx, &timedOut, childAcc, tables)
-			if timedOut {
-				complete = false
+		if g.threads > 1 && d >= 3 && len(rootMoves) > 1 {
+			var pn int64
+			localBest, localScore, pn, complete = g.searchRootSplit(rootMoves, st, rootAcc, d, deadline, ctx)
+			nodes += pn
+			if !complete {
+				timedOut = true
 				break
 			}
-			if i == 0 || score > localScore {
-				localBest = m
-				localScore = score
-			}
-			if score > alpha {
-				alpha = score
+		} else {
+			for i, m := range rootMoves {
+				child := makeMove(st, m)
+				childAcc := nextAccumulator(g.nnue, rootAcc, st.Board, m)
+				score := -g.negamax(child, d-1, -beta, -alpha, 1, &nodes, deadline, ctx, &timedOut, childAcc, tables)
+				if timedOut {
+					complete = false
+					break
+				}
+				if i == 0 || score > localScore {
+					localBest = m
+					localScore = score
+				}
+				if score > alpha {
+					alpha = score
+				}
 			}
 		}
 		if !complete {
@@ -322,6 +342,84 @@ func (g *Game) searchBuiltin(ctx context.Context, pos game.Position, opts game.S
 	}
 	result.Search = game.SearchInfo{Depth: reached, Nodes: nodes, TimeMs: time.Since(start).Milliseconds(), TimedOut: timedOut, PV: []game.Move{mv}}
 	return result, nil
+}
+
+func (g *Game) searchRootSplit(rootMoves []move, st *State, rootAcc *nnue.Accumulator, depth int, deadline time.Time, ctx context.Context) (move, int, int64, bool) {
+	first := rootMoves[0]
+	firstChild := makeMove(st, first)
+	firstAcc := nextAccumulator(g.nnue, rootAcc, st.Board, first)
+	firstTables := &searchTables{eval: make(map[uint64]int), tt: make(map[uint64]ttEntry)}
+	var nodes int64
+	var timed bool
+	bestScore := -g.negamax(firstChild, depth-1, -mateScore*2, mateScore*2, 1, &nodes, deadline, ctx, &timed, firstAcc, firstTables)
+	if timed || time.Now().After(deadline) || ctx.Err() != nil {
+		return first, bestScore, nodes, false
+	}
+	best := first
+	alpha := bestScore
+
+	type result struct {
+		move  move
+		score int
+		nodes int64
+		done  bool
+	}
+	results := make([]result, len(rootMoves))
+	results[0] = result{move: first, score: bestScore, nodes: nodes, done: true}
+	jobs := make(chan int)
+	workers := g.threads
+	if workers > len(rootMoves)-1 {
+		workers = len(rootMoves) - 1
+	}
+	if workers < 1 {
+		workers = 1
+	}
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			tables := &searchTables{eval: make(map[uint64]int), tt: make(map[uint64]ttEntry)}
+			for idx := range jobs {
+				r := result{move: rootMoves[idx], done: true}
+				child := makeMove(st, rootMoves[idx])
+				childAcc := nextAccumulator(g.nnue, rootAcc, st.Board, rootMoves[idx])
+				var localTimed bool
+				if time.Now().After(deadline) || ctx.Err() != nil {
+					r.done = false
+				} else {
+					r.score = -g.negamax(child, depth-1, -mateScore*2, -alpha, 1, &r.nodes, deadline, ctx, &localTimed, childAcc, tables)
+					if localTimed {
+						r.done = false
+					}
+				}
+				results[idx] = r
+			}
+		}()
+	}
+	for i := 1; i < len(rootMoves); i++ {
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
+
+	complete := true
+	for i := 1; i < len(results); i++ {
+		r := results[i]
+		nodes += r.nodes
+		if !r.done {
+			complete = false
+			continue
+		}
+		if r.score > bestScore {
+			best = r.move
+			bestScore = r.score
+		}
+	}
+	if !complete {
+		return best, bestScore, nodes, false
+	}
+	return best, bestScore, nodes, true
 }
 
 func (g *Game) negamax(st *State, depth, alpha, beta, ply int, nodes *int64, deadline time.Time, ctx context.Context, timedOut *bool, acc *nnue.Accumulator, tables *searchTables) int {

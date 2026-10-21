@@ -1,0 +1,84 @@
+{{define "playground"}}<section class="page-hero wrap">
+  <div class="breadcrumb"><a href="/">首页</a><span>/</span><span>调试器</span></div>
+  <div class="page-hero-grid">
+    <div>
+      <div class="kicker">PLAYGROUND</div>
+      <h1>请求调试器</h1>
+      <p class="lead">直接向本机服务发请求，支持普通 JSON 与 SSE 流式两种模式。最近 10 次调试记录只保存在浏览器 localStorage，不会上传。</p>
+    </div>
+    <div class="page-hero-aside">
+      <div class="aside-row"><span>普通请求</span><code>POST /api/v1/move</code></div>
+      <div class="aside-row"><span>流式请求</span><code>POST /api/v1/move/stream</code></div>
+      <div class="aside-row"><span>记录</span><code>localStorage</code></div>
+    </div>
+  </div>
+  {{template "docs-subnav" .}}
+</section>
+
+<section class="section wrap section-tight" id="playground">
+  <div class="playground">
+    <div class="pg-form">
+      <div class="pg-row">
+        <label>棋种
+          <select id="game-select" aria-label="选择棋种">
+            {{range .Games}}<option value="{{.ID}}">{{.Name}} · {{.EnglishName}}</option>{{end}}
+          </select>
+        </label>
+        <label>难度
+          <select id="difficulty" aria-label="选择难度">
+            <option value="easy">easy · 快速</option>
+            <option value="normal" selected>normal · 常规</option>
+            <option value="hard">hard · 更强</option>
+            <option value="master">master · 深度</option>
+          </select>
+        </label>
+      </div>
+      <div class="pg-row">
+        <label>思考时间 <span class="unit">ms</span>
+          <input id="time-limit" type="number" min="50" max="15000" step="50" value="1000" aria-label="思考时间毫秒">
+        </label>
+        <label>最大深度
+          <input id="max-depth" type="number" min="1" max="10" step="1" value="4" aria-label="最大思考深度">
+        </label>
+      </div>
+      <div class="pg-hint" id="game-hint">选择棋种后会自动填入初始局面。</div>
+      <label class="json-label">请求 JSON
+        <textarea id="request-json" spellcheck="false" wrap="off" aria-label="请求 JSON"></textarea>
+      </label>
+      <div class="pg-actions">
+        <button class="btn btn-primary" id="send-btn" type="button">发送请求 <span>→</span></button>
+        <button class="btn btn-ghost" id="stream-btn" type="button">流式计算</button>
+        <button class="btn btn-ghost" id="reset-btn" type="button">重置局面</button>
+        <button class="btn btn-ghost" id="curl-btn" type="button">复制 cURL</button>
+      </div>
+      <div class="pg-note">提示：棋盘数组较长时可先发送初始局面，观察响应后再替换 <code>board</code>。也可以从 <a href="/games">棋种页</a> 点击“打开调试”自动带入。</div>
+    </div>
+
+    <div class="pg-response">
+      <div class="resp-head">
+        <span id="response-status" class="resp-status idle">等待请求</span>
+        <span id="response-time" class="resp-time"></span>
+      </div>
+      <div class="move-banner" id="response-move">
+        <span class="move-label">AI 走法</span>
+        <strong>—</strong>
+      </div>
+      <div class="progress-block">
+        <div class="progress-head">
+          <span>思考过程</span>
+          <span id="progress-summary">流式计算时显示</span>
+        </div>
+        <div class="progress-log" id="progress-log">
+          <span class="muted">点击“流式计算”，查看每一层迭代的深度、评分、节点数和当前最佳走法。</span>
+        </div>
+      </div>
+      <pre class="resp-json" id="response-json">点击“发送请求”后，这里显示服务端原始响应。</pre>
+      <div class="history-block">
+        <div class="history-head"><span>本机调试记录</span><button id="clear-history" type="button">清空</button></div>
+        <div id="history" class="history-list"><span class="muted">暂无记录</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script id="games-data" type="application/json">{{.GamesJSON}}</script>{{end}}

@@ -1,0 +1,86 @@
+{{define "home"}}<section class="hero wrap">
+  <div class="hero-copy">
+    <div class="eyebrow"><span class="pulse"></span>STATELESS · MULTI-GAME · GO</div>
+    <h1>只传棋盘，<br><span class="grad">拿回下一步。</span></h1>
+    <p class="lead">七种棋，一套无状态接口：传入当前棋盘，返回最佳走法。</p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="/play">开始对弈 <span>→</span></a>
+      <a class="btn btn-ghost" href="/docs">查看接口</a>
+    </div>
+    <div class="hero-badges">
+      <span><b>7</b> 种棋类</span>
+      <span><b>0</b> 服务端会话</span>
+      <span><b>FEN</b> / 坐标棋盘</span>
+      <span><b>SSE</b> 思考过程</span>
+    </div>
+  </div>
+
+  <div class="hero-visual" aria-label="请求与响应示例">
+    <div class="float-card card-a">
+      <div class="float-head"><span class="method post">POST</span><code>/api/v1/move</code></div>
+      <pre class="mini-code">{
+  <span class="k">"game"</span>: <span class="s">"xiangqi"</span>,
+  <span class="k">"fen"</span>: <span class="s">"rnbakabnr/9/1c5c1/..."</span>,
+  <span class="k">"difficulty"</span>: <span class="s">"normal"</span>,
+  <span class="k">"timeLimitMs"</span>: <span class="n">1000</span>
+}</pre>
+    </div>
+    <div class="float-arrow" aria-hidden="true">↓</div>
+    <div class="float-card card-b">
+      <div class="float-head"><span class="ok-dot"></span><code>200 OK</code><span class="ms">86 ms</span></div>
+      <pre class="mini-code">{
+  <span class="k">"move"</span>: { <span class="k">"uci"</span>: <span class="s">"h2e2"</span> },
+  <span class="k">"evaluation"</span>: { <span class="k">"score"</span>: <span class="n">32</span> },
+  <span class="k">"search"</span>: { <span class="k">"depth"</span>: <span class="n">4</span> }
+}</pre>
+    </div>
+    <div class="orbit-tag tag-x" data-i18n-ignore="1">象</div>
+    <div class="orbit-tag tag-o" data-i18n-ignore="1">♞</div>
+    <div class="orbit-tag tag-r" data-i18n-ignore="1">◐</div>
+  </div>
+</section>
+
+<section class="section wrap">
+  <div class="section-head">
+    <div>
+      <div class="kicker">GAMES</div>
+      <h2>支持的棋种</h2>
+    </div>
+    <p class="section-desc">选择棋种查看格式，或直接开始对弈。</p>
+  </div>
+  <div class="games-grid">
+    {{range .Games}}{{template "game-card" .}}{{end}}
+  </div>
+  <div class="section-more"><a class="btn btn-ghost" href="/games">查看全部棋种格式 →</a></div>
+</section>
+
+<section class="section wrap">
+  <div class="section-head">
+    <div>
+      <div class="kicker">API</div>
+      <h2>快速调用</h2>
+    </div>
+  </div>
+  <div class="quick-call-grid">
+    <div class="quick-links">
+      <a href="/docs"><b>POST</b><code>/api/v1/move</code><span>→</span></a>
+      <a href="/docs"><b>POST</b><code>/api/v1/apply-move</code><span>→</span></a>
+      <a href="/docs/stream"><b>SSE</b><code>/api/v1/move/stream</code><span>→</span></a>
+      <a href="/docs"><b>GET</b><code>/api/v1/games</code><span>→</span></a>
+    </div>
+    <div class="code-window">
+      <div class="code-tabs">
+        <button class="code-tab active" type="button" disabled>cURL</button>
+        <button class="copy-code" type="button" data-copy-target="home-curl">复制</button>
+      </div>
+      <pre class="code-body" id="home-curl"><code>curl -X POST http://127.0.0.1:8090/api/v1/move \
+  -H "Content-Type: application/json" \
+  -d '{
+    "game": "xiangqi",
+    "fen": "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1",
+    "difficulty": "normal",
+    "timeLimitMs": 1000
+  }'</code></pre>
+    </div>
+  </div>
+</section>{{end}}

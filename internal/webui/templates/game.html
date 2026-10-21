@@ -1,0 +1,218 @@
+{{define "game"}}{{with .Game}}<section class="page-hero wrap">
+  <div class="breadcrumb"><a href="/">首页</a><span>/</span><a href="/games">棋种</a><span>/</span><span>{{.Name}}</span></div>
+  <div class="game-hero">
+    <div class="game-icon large" aria-hidden="true" data-i18n-ignore="1">{{icon .ID}}</div>
+    <div class="game-hero-copy">
+      <div class="kicker">{{.Category}} · {{.EnglishName}}</div>
+      <h1>{{.Name}}</h1>
+      <p class="lead">{{.Tagline}}</p>
+      <div class="game-chips">
+        <span class="chip"><b>{{if eq .ID "checkers"}}121 孔{{else}}{{.Board.Cols}}×{{.Board.Rows}}{{end}}</b> 棋盘</span>
+        <span class="chip"><b>{{if eq .Board.Type "fen"}}FEN{{else}}board[{{.Board.Cells}}]{{end}}</b> 局面</span>
+        <span class="chip">先手 <b>{{.InitialPosition.Turn}}</b></span>
+        <span class="chip"><b>{{.InitialPosition.LegalMoveCount}}</b> 种初始走法</span>
+      </div>
+    </div>
+    <div class="game-hero-actions">
+      <a class="btn btn-primary" href="/play?game={{.ID}}">开始对弈 <span>→</span></a>
+      <a class="btn btn-ghost" href="/playground?game={{.ID}}">在调试器中打开</a>
+      <a class="btn btn-ghost" href="/api/v1/games/{{.ID}}">查看 JSON</a>
+    </div>
+  </div>
+  {{template "docs-subnav" $}}
+</section>
+
+<section class="section wrap section-tight">
+  <div class="detail-grid">
+    <article class="doc-card">
+      <h3>规则</h3>
+      <ul class="rule-list">
+        {{range .Rules}}<li>{{.}}</li>{{end}}
+      </ul>
+    </article>
+    <article class="doc-card">
+      <h3>接口信息</h3>
+      <div class="kv-list">
+        <div><span>棋种 id</span><code>{{.ID}}</code></div>
+        <div><span>局面格式</span><code>{{.PositionFormat}}</code></div>
+        <div><span>走法格式</span><code>{{.MoveFormat}}</code></div>
+        <div><span>双人 / 先手</span><code>{{.InitialPosition.Turn}}</code></div>
+        {{if .Aliases}}<div><span>别名</span><code>{{join .Aliases ", "}}</code></div>{{end}}
+        {{if .Board.Origin}}<div><span>坐标</span><code>{{.Board.Origin}}</code></div>{{end}}
+      </div>
+      <div class="feature-list">
+        {{range .Features}}<span>{{.}}</span>{{end}}
+      </div>
+    </article>
+  </div>
+</section>
+
+{{with $.GameDoc}}
+<section class="section wrap section-tight" id="api">
+  <div class="section-head">
+    <div>
+      <div class="kicker">API · {{$.Game.Name}}</div>
+      <h2>{{$.Game.Name}}接口详解</h2>
+    </div>
+    <p class="section-desc">下面的 JSON、cURL 和 SSE 示例都使用本棋种的初始局面；复制后可直接调用。所有接口仍是无状态的。</p>
+  </div>
+  <div class="doc-jump">
+    <a href="#game-request">请求 AI 走法</a>
+    <a href="#game-response">响应结构</a>
+    <a href="#game-apply-request">apply-move</a>
+    <a href="#game-legal-request">legal-moves</a>
+    <a href="#game-initial">初始局面</a>
+  </div>
+  <div class="callout compact-callout">
+    <span class="callout-icon">i</span>
+    <div><strong>先取局面</strong>：<code>GET /api/v1/games/{{$.Game.ID}}</code> 会返回本棋种的 <code>board</code>、<code>colors</code>、<code>positionFormat</code>、<code>moveFormat</code>、<code>initialPosition</code> 和完整合法走法，可直接作为请求起点。</div>
+  </div>
+
+  <div class="doc-grid">
+    <article class="doc-card">
+      <h3>1. 请求 AI 走法 <span class="muted">POST /api/v1/games/{{$.Game.ID}}/move</span></h3>
+      <p>把当前局面放在 <code>position</code> 中，返回最佳走法、评分和思考统计。</p>
+      <pre class="schema-code code-wrap" id="game-request">{{.RequestJSON}}</pre>
+      <div class="card-actions">
+        <button class="btn btn-ghost small" type="button" data-copy-target="game-request">复制请求 JSON</button>
+        <a class="btn btn-ghost small" href="/playground?game={{$.Game.ID}}">填入调试器</a>
+      </div>
+      <div class="api-subhead">等价 cURL</div>
+      <pre class="schema-code code-wrap">{{.Curl}}</pre>
+    </article>
+
+    <article class="doc-card">
+      <h3>2. 响应结构 <span class="muted">data</span></h3>
+      <p>实际思考会返回真实深度、节点数和评分；下面是字段结构示例。</p>
+      <pre class="schema-code code-wrap scroll-code" id="game-response">{{.MoveResponseJSON}}</pre>
+      <div class="card-actions">
+        <button class="btn btn-ghost small" type="button" data-copy-target="game-response">复制响应 JSON</button>
+      </div>
+      <p class="fineprint"><code>move</code> 只描述这一步，不会返回新棋盘；需要新棋盘时继续调用下一节的 <code>apply-move</code>。</p>
+    </article>
+  </div>
+
+  <div class="doc-grid">
+    <article class="doc-card">
+      <h3>3. 本棋种字段</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+          <tbody>
+            {{range .Fields}}<tr><td><code>{{.Name}}</code></td><td>{{.Type}}</td><td>{{.Desc}}</td></tr>{{end}}
+          </tbody>
+        </table>
+      </div>
+    </article>
+    <article class="doc-card">
+      <h3>4. 走法输入与输出</h3>
+      <p>请求里的 <code>move</code> 只需要最少字段；响应里的走法对象会带坐标，方便前端直接渲染。</p>
+      <div class="api-subhead">请求 move（apply-move 用）</div>
+      <pre class="schema-code code-wrap">{{.MoveInputJSON}}</pre>
+      <div class="api-subhead">响应 move（move / apply-move 返回）</div>
+      <pre class="schema-code code-wrap">{{.MoveOutputJSON}}</pre>
+    </article>
+  </div>
+
+  <div class="doc-grid">
+    <article class="doc-card">
+      <h3>5. 应用一步棋 <span class="muted">POST /api/v1/games/{{$.Game.ID}}/apply-move</span></h3>
+      <p>把一步棋应用到当前局面，返回新棋盘、轮次、状态和全部合法走法。适合对弈页或需要本地维护局面的客户端。</p>
+      <pre class="schema-code code-wrap" id="game-apply-request">{{.ApplyRequestJSON}}</pre>
+      <div class="card-actions">
+        <button class="btn btn-ghost small" type="button" data-copy-target="game-apply-request">复制请求</button>
+      </div>
+      <div class="api-subhead">响应</div>
+      <pre class="schema-code code-wrap scroll-code">{{.ApplyResponseJSON}}</pre>
+      <p class="fineprint">示例中的 <code>legalMoves</code> 只保留 2 条；实际响应返回全部合法走法。</p>
+      <div class="api-subhead">cURL</div>
+      <pre class="schema-code code-wrap">{{.ApplyCurl}}</pre>
+    </article>
+
+    <article class="doc-card">
+      <h3>6. 查询合法走法 <span class="muted">POST /api/v1/games/{{$.Game.ID}}/legal-moves</span></h3>
+      <p>请求体与 <code>move</code> 相同，但不需要难度和时间。返回当前局面的全部合法走法，可用于高亮落点或前端校验。</p>
+      <pre class="schema-code code-wrap" id="game-legal-request">{{.LegalRequestJSON}}</pre>
+      <div class="card-actions">
+        <button class="btn btn-ghost small" type="button" data-copy-target="game-legal-request">复制请求</button>
+        <a class="btn btn-ghost small" href="/playground?game={{$.Game.ID}}">填入调试器</a>
+      </div>
+      <div class="api-subhead">响应（legalMoves 已截取前 3 条）</div>
+      <pre class="schema-code code-wrap scroll-code">{{.LegalResponseJSON}}</pre>
+    </article>
+  </div>
+
+  <div class="doc-grid">
+    <article class="doc-card">
+      <h3>7. SSE 实时思考 <span class="muted">POST {{.SSEURL}}</span></h3>
+      <p>与普通 <code>move</code> 请求相同的 JSON，事件流为 <code>start</code> → 多次 <code>depth</code> → <code>result</code> → <code>done</code>。</p>
+      <pre class="schema-code code-wrap">{{.SSECurl}}</pre>
+      <div class="api-subhead">事件示例</div>
+      <pre class="schema-code code-wrap">{{.SSEExample}}</pre>
+    </article>
+
+    <article class="doc-card">
+      <h3>8. 本棋种注意事项</h3>
+      <ul class="rule-list">
+        {{range .Notes}}<li>{{.}}</li>{{end}}
+      </ul>
+      <div class="callout compact-callout">
+        <span class="callout-icon">i</span>
+        <div>所有示例中的棋种 id 也可以换成路径形式；错误统一返回 <code>{"ok":false,"error":{"code","message"}}</code>。</div>
+      </div>
+    </article>
+  </div>
+
+  <div class="doc-grid">
+    <article class="doc-card">
+      <h3>9. 棋盘、轮次与坐标</h3>
+      <div class="kv-list">
+        <div><span>局面</span><code>{{.BoardSummary}}</code></div>
+        <div><span>行棋方</span><code>{{.TurnSummary}}</code></div>
+        {{if .IndexSummary}}<div><span>索引约定</span><code>{{.IndexSummary}}</code></div>{{end}}
+      </div>
+      <p class="fineprint">完整初始局面可以从 <code>GET /api/v1/games/{{$.Game.ID}}</code> 的 <code>initialPosition</code> 获取。</p>
+      <div class="api-subhead">获取元数据</div>
+      <pre class="schema-code code-wrap">curl http://127.0.0.1:8090/api/v1/games/{{$.Game.ID}}</pre>
+      <p class="fineprint">响应的 <code>initialPosition</code> 可直接作为 <code>move</code> / <code>legal-moves</code> 请求中的 <code>position</code>。</p>
+      <details class="json-details">
+        <summary>展开 initialPosition JSON</summary>
+        <pre class="schema-code json-block" id="game-initial">{{compactJSON $.Game.InitialPosition}}</pre>
+      </details>
+    </article>
+
+    <article class="doc-card">
+      <h3>10. 棋子编码</h3>
+      {{if .Legend}}
+      <div class="legend-grid">
+        {{range .Legend}}<div><code>{{.Code}}</code><span>{{.Meaning}}</span></div>{{end}}
+      </div>
+      {{else}}
+      <p class="muted">该棋种没有额外棋子编码。</p>
+      {{end}}
+      <p class="fineprint">棋盘数组中的空位统一用 <code>""</code> 表示；具体下标方向见上方“索引约定”。</p>
+    </article>
+  </div>
+</section>
+{{end}}
+
+<section class="section wrap">
+  <div class="callout">
+    <span class="callout-icon">↔</span>
+    <div><strong>跨域</strong>：该棋种的 JSON 接口、SSE 接口和文档页面都返回统一 CORS 头，可直接从浏览器调用。</div>
+  </div>
+</section>
+
+<section class="section wrap">
+  <div class="cta-panel">
+    <div>
+      <div class="kicker">MORE</div>
+      <h2>查看其他棋种</h2>
+      <p>所有棋种共用一套请求结构，只是局面与走法格式不同。</p>
+    </div>
+    <div class="cta-actions">
+      <a class="btn btn-primary" href="/games">棋种目录 <span>→</span></a>
+      <a class="btn btn-ghost" href="/docs">接口参考</a>
+    </div>
+  </div>
+</section>{{end}}{{end}}

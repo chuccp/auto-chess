@@ -1,0 +1,5 @@
+{{define "docs-subnav"}}<nav class="subnav" aria-label="文档导航">
+  <a href="/docs" class="{{if eq .Active "docs"}}active{{end}}">接口参考</a>
+  <a href="/docs/stream" class="{{if eq .Active "stream"}}active{{end}}">SSE 流式</a>
+  <a href="/games" class="{{if eq .Active "games"}}active{{end}}">棋种与格式</a>
+</nav>{{end}}

@@ -1,0 +1,128 @@
+{{define "guide"}}<section class="page-hero wrap">
+  <div class="breadcrumb"><a href="/">首页</a><span>/</span><span>快速开始</span></div>
+  <div class="page-hero-grid">
+    <div>
+      <div class="kicker">GETTING STARTED</div>
+      <h1>三步接入</h1>
+      <p class="lead">你的应用保留棋盘与历史，服务端只做一件事：在给定局面下计算下一步。</p>
+    </div>
+    <div class="page-hero-aside">
+      <div class="aside-row"><span>服务地址</span><code>http://127.0.0.1:8090</code></div>
+      <div class="aside-row"><span>核心接口</span><code>POST /api/v1/move</code></div>
+      <div class="aside-row"><span>流式接口</span><code>GET/POST /api/v1/move/stream</code></div>
+    </div>
+  </div>
+</section>
+
+<section class="section wrap section-tight">
+  <div class="steps">
+    <article class="step-card">
+      <span class="step-index">01</span>
+      <h3>读取棋种</h3>
+      <p>从 <code>GET /api/v1/games</code> 获取棋盘尺寸、初始局面、坐标约定和走子格式。也可以直接使用固定 id。</p>
+    </article>
+    <article class="step-card">
+      <span class="step-index">02</span>
+      <h3>提交当前局面</h3>
+      <p>FEN 棋种传 <code>fen</code>；网格棋种传 <code>board</code> 与 <code>turn</code>。可附带难度和思考时间。</p>
+    </article>
+    <article class="step-card">
+      <span class="step-index">03</span>
+      <h3>应用返回走法</h3>
+      <p>响应中的 <code>move</code> 就是下一步。由你的应用落子、记录棋谱、判断终局，再次请求。</p>
+    </article>
+  </div>
+
+  <div class="doc-grid">
+    <article class="doc-card">
+      <h3>请求</h3>
+      <pre class="schema-code">POST /api/v1/move
+Content-Type: application/json
+
+{
+  "game": "xiangqi",
+  "fen": "rnbakabnr/9/1c5c1/...",
+  "difficulty": "normal",
+  "timeLimitMs": 1000
+}</pre>
+      <p class="fineprint">也可以把棋种放在路径里：<code>POST /api/v1/games/xiangqi/move</code>。</p>
+    </article>
+    <article class="doc-card">
+      <h3>响应</h3>
+      <pre class="schema-code">{
+  "ok": true,
+  "data": {
+    "game": "xiangqi",
+    "engine": "godogpaw",
+    "move": {
+      "uci": "h2e2",
+      "from": { "index": 25, "row": 2, "col": 7 },
+      "to": { "index": 22, "row": 2, "col": 4 }
+    },
+    "gameOver": false,
+    "status": { "state": "playing" },
+    "evaluation": { "score": 32 },
+    "search": { "depth": 4, "nodes": 18234, "timeMs": 86 }
+  }
+}</pre>
+      <p class="fineprint"><code>move</code> 是唯一需要消费的字段。服务端不返回新棋盘。</p>
+    </article>
+  </div>
+
+  <div class="callout">
+    <span class="callout-icon">i</span>
+    <div><strong>无状态：服务端不保存棋谱或轮次；重复局面、棋钟等规则由调用方维护。</strong></div>
+  </div>
+</section>
+
+<section class="section wrap">
+  <div class="section-head">
+    <div>
+      <div class="kicker">CLIENTS</div>
+      <h2>调用示例</h2>
+    </div>
+  </div>
+
+  <article class="doc-card">
+    <h3>JavaScript</h3>
+    <pre class="schema-code">const res = await fetch("/api/v1/move", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    game: "xiangqi",
+    fen: "rnbakabnr/9/1c5c1/...",
+    difficulty: "normal"
+  })
+});
+
+const { ok, data, error } = await res.json();
+if (ok) console.log(data.move);
+else console.error(error.code, error.message);</pre>
+  </article>
+</section>
+
+<section class="section wrap">
+  <div class="section-head">
+    <div>
+      <div class="kicker">RUN</div>
+      <h2>运行服务</h2>
+    </div>
+    <p class="section-desc">无需额外服务，要求 Go 1.26+。</p>
+  </div>
+  <div class="code-window">
+    <div class="code-tabs">
+      <button class="code-tab active" type="button" disabled>本地启动</button>
+      <button class="copy-code" type="button" data-copy-target="run-code">复制</button>
+    </div>
+    <pre class="code-body" id="run-code"><code>go mod tidy
+go run .
+
+# Docs & debugger: http://127.0.0.1:8090/
+# Core API:          http://127.0.0.1:8090/api/v1/move
+# Streaming API:     http://127.0.0.1:8090/api/v1/move/stream</code></pre>
+  </div>
+  <div class="callout">
+    <span class="callout-icon">↔</span>
+    <div><strong>跨域：所有接口都返回 Access-Control-Allow-Origin: *，OPTIONS 预检返回 204。</strong></div>
+  </div>
+</section>{{end}}

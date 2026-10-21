@@ -1,0 +1,37 @@
+{{define "layout"}}<!doctype html>
+<html lang="{{if eq .Lang "en"}}en{{else}}zh-CN{{end}}" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="{{.Description}}">
+  <title>{{.Title}}</title>
+  <script>
+    (function () {
+      window.__LANG = "{{.Lang}}";
+      try {
+        var saved = localStorage.getItem("auto-chess-theme");
+        document.documentElement.setAttribute("data-theme", saved === "dark" ? "dark" : "light");
+      } catch (e) {
+        document.documentElement.setAttribute("data-theme", "light");
+      }
+    })();
+  </script>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23ff6b4a'/%3E%3Ctext x='32' y='46' font-size='38' text-anchor='middle' fill='%23160c08'%3E%E2%99%9E%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/assets/app.css?v=20261021-16">
+</head>
+<body id="top" class="page-{{.Page}}">
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="bg-glow" aria-hidden="true"></div>
+
+  {{template "nav" .}}
+
+  <main>{{.Body}}</main>
+
+  {{template "footer" .}}
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="/assets/site.js?v=20261021-16" defer></script>
+  {{if eq .Page "playground"}}<script src="/assets/playground.js?v=20261021-16" defer></script>{{end}}
+  {{if eq .Page "play"}}<script src="/assets/play.js?v=20261021-16" defer></script>{{end}}
+</body>
+</html>{{end}}

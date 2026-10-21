@@ -29,5 +29,11 @@ go.work.sum
 .env
 
 # Editor/IDE
-# .idea/
+.idea/
 # .vscode/
+
+# auto-chess runtime / local verification
+auto-chess.exe
+*.log
+logs/
+.playwright/

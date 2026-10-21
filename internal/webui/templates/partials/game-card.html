@@ -1,0 +1,20 @@
+{{define "game-card"}}<article class="game-card" data-game="{{.ID}}">
+  <div class="game-top">
+    <div class="game-icon" aria-hidden="true" data-i18n-ignore="1">{{icon .ID}}</div>
+    <div>
+      <a class="game-name" href="/games/{{.ID}}">{{.Name}}</a>
+      <span class="game-en">{{.EnglishName}}</span>
+    </div>
+  </div>
+  <p class="game-desc">{{.Tagline}}</p>
+  <div class="game-chips">
+    <span class="chip"><b>{{if eq .ID "checkers"}}121 孔{{else}}{{.Board.Cols}}×{{.Board.Rows}}{{end}}</b> 棋盘</span>
+    <span class="chip"><b>{{if eq .Board.Type "fen"}}FEN{{else}}board[{{.Board.Cells}}]{{end}}</b></span>
+    <span class="chip">先手 <b>{{.InitialPosition.Turn}}</b></span>
+  </div>
+  <div class="game-foot">
+    <a class="btn btn-primary" href="/play?game={{.ID}}">开始对弈</a>
+    <a class="btn btn-ghost" href="/games/{{.ID}}">详情</a>
+    <span class="count">{{.InitialPosition.LegalMoveCount}} 种初始走法</span>
+  </div>
+</article>{{end}}

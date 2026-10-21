@@ -1,0 +1,84 @@
+{{define "play"}}<section class="page-hero wrap">
+  <div class="breadcrumb"><a href="/">首页</a><span>/</span><span>在线对弈</span></div>
+  <div class="page-hero-grid">
+    <div>
+      <div class="kicker">PLAY</div>
+      <h1>直接和引擎下一盘</h1>
+      <p class="lead">选择棋种与执子，人类走一步、AI 走一步。对局自动保存在本机，刷新后可以继续。</p>
+    </div>
+    <div class="page-hero-aside">
+      <div class="aside-row"><span>国际象棋</span><code>Chess-3</code></div>
+      <div class="aside-row"><span>中国象棋</span><code>godogpaw</code></div>
+      <div class="aside-row"><span>其余棋种</span><code>内置引擎</code></div>
+    </div>
+  </div>
+</section>
+
+<section class="section wrap section-tight" id="play">
+  <div class="play-layout">
+    <div class="play-main">
+      <div class="board-card">
+        <div class="board-head">
+          <div class="board-title">
+            <strong id="play-game-name">对弈</strong>
+            <span id="play-status" class="status-pill">准备中</span>
+          </div>
+          <div class="board-actions">
+            <button class="btn btn-ghost small" id="undo-btn" type="button">悔棋</button>
+            <button class="btn btn-primary small" id="new-game-btn" type="button">新对局</button>
+          </div>
+        </div>
+        <div class="board-stage" id="board">
+          <div class="board-placeholder">正在加载棋盘…</div>
+        </div>
+        <div class="board-caption" id="board-caption"></div>
+      </div>
+
+      <div class="ai-progress-card" id="ai-progress-card">
+        <div class="ai-progress-head">
+          <span id="ai-progress-label">AI 等待中</span>
+          <span id="ai-progress-meta"></span>
+        </div>
+        <div class="ai-progress-track"><div class="ai-progress-bar" id="ai-progress-bar"></div></div>
+      </div>
+    </div>
+
+    <aside class="play-side">
+      <div class="doc-card">
+        <h3>对局设置</h3>
+        <div class="play-field">
+          <label>棋种
+            <select id="play-game">
+              {{range .Games}}<option value="{{.ID}}">{{.Name}} · {{.EnglishName}}</option>{{end}}
+            </select>
+          </label>
+          <label>执子
+            <select id="play-side"></select>
+          </label>
+          <label>难度
+            <select id="play-difficulty">
+              <option value="easy">easy · 轻松</option>
+              <option value="normal" selected>normal · 常规</option>
+              <option value="hard">hard · 较强</option>
+              <option value="master">master · 最强</option>
+            </select>
+          </label>
+        </div>
+        <div class="play-hint" id="play-hint">点击棋盘落子。</div>
+      </div>
+
+      <div class="doc-card">
+        <h3>走子记录</h3>
+        <ol class="move-list" id="move-list"><li class="muted">还没有走子</li></ol>
+      </div>
+
+      <div class="doc-card">
+        <h3>本机对局</h3>
+        <div class="record-list" id="record-list"><span class="muted">暂无记录</span></div>
+        <button class="btn btn-ghost small record-clear" id="clear-records" type="button">清空本机记录</button>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<script id="games-data" type="application/json">{{.GamesJSON}}</script>{{end}}

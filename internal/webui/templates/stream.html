@@ -1,0 +1,154 @@
+{{define "stream"}}<section class="page-hero wrap">
+  <div class="breadcrumb"><a href="/">首页</a><span>/</span><span>SSE 流式思考</span></div>
+  <div class="page-hero-grid">
+    <div>
+      <div class="kicker">STREAMING</div>
+      <h1>SSE 实时思考过程</h1>
+      <p class="lead">高难度局面需要几秒钟。SSE 会按迭代加深的层，把深度、评分、节点数和当前最佳走法实时推给前端。</p>
+    </div>
+    <div class="page-hero-aside">
+      <div class="aside-row"><span>连接方式</span><code>GET / POST</code></div>
+      <div class="aside-row"><span>内容类型</span><code>text/event-stream</code></div>
+      <div class="aside-row"><span>心跳</span><code>5s</code></div>
+    </div>
+  </div>
+  {{template "docs-subnav" .}}
+</section>
+
+<section class="section wrap section-tight">
+  <div class="stream-grid">
+    <article class="doc-card">
+      <h3>事件序列</h3>
+      <div class="event-flow">
+        <span class="event-pill start">start</span>
+        <span class="event-arrow">→</span>
+        <span class="event-pill depth">depth × N</span>
+        <span class="event-arrow">→</span>
+        <span class="event-pill result">result</span>
+        <span class="event-arrow">→</span>
+        <span class="event-pill done">done</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>event</th><th>data</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>start</code></td><td>game / engine / difficulty / timeLimitMs / maxDepth / turn</td><td>连接建立，思考开始</td></tr>
+            <tr><td><code>depth</code></td><td>depth / score / nodes / timeMs / best / pv</td><td>完成一层迭代加深时推送</td></tr>
+            <tr><td><code>result</code></td><td>与 <code>/api/v1/move</code> 的 <code>data</code> 相同</td><td>最终走法；随后连接关闭</td></tr>
+            <tr><td><code>error</code></td><td>ok:false / error.code / error.message</td><td>思考或参数错误</td></tr>
+            <tr><td><code>done</code></td><td>ok / timeMs / depth / nodes / gameOver</td><td>流结束标记</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </article>
+
+    <article class="doc-card">
+      <h3>EventSource（GET）</h3>
+      <p class="fineprint">FEN 棋种可直接把局面放进 URL；大棋盘请用 POST + fetch 读取流。</p>
+      <pre class="schema-code">const fen = "rnbakabnr/9/1c5c1/...";
+const url = `/api/v1/move/stream?game=xiangqi`
+  + `&fen=${encodeURIComponent(fen)}`
+  + `&difficulty=master&timeLimitMs=6000`;
+
+const es = new EventSource(url);
+
+es.addEventListener("start", (e) =&gt; {
+  console.log("start", JSON.parse(e.data));
+});
+
+es.addEventListener("depth", (e) =&gt; {
+  const p = JSON.parse(e.data);
+  console.log(`depth ${p.depth} score ${p.score}`, p.best);
+});
+
+es.addEventListener("result", (e) =&gt; {
+  console.log("best move", JSON.parse(e.data).move);
+  es.close();
+});
+
+es.addEventListener("done", () =&gt; es.close());</pre>
+    </article>
+  </div>
+</section>
+
+<section class="section wrap">
+  <div class="section-head">
+    <div>
+      <div class="kicker">POST</div>
+      <h2>大棋盘用 POST + fetch</h2>
+    </div>
+    <p class="section-desc">网格棋种的 <code>board</code> 数组较大，用 POST body 更稳妥；用 fetch 的流式读取解析 SSE 帧。</p>
+  </div>
+  <div class="code-window">
+    <div class="code-tabs">
+      <button class="code-tab active" type="button" disabled>POST + fetch</button>
+      <button class="copy-code" type="button" data-copy-target="stream-post-code">复制</button>
+    </div>
+    <pre class="code-body" id="stream-post-code"><code>const res = await fetch("/api/v1/move/stream", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    game: "gomoku",
+    board: board,       // flat 225-cell board
+    turn: "b",
+    difficulty: "master",
+    timeLimitMs: 6000
+  })
+});
+
+const reader = res.body.getReader();
+const decoder = new TextDecoder();
+let buffer = "";
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+  let cut;
+  while ((cut = buffer.indexOf("\n\n")) >= 0) {
+    const frame = buffer.slice(0, cut);
+    buffer = buffer.slice(cut + 2);
+    const event = (frame.match(/^event: (.+)$/m) || [])[1];
+    const data = (frame.match(/^data: (.+)$/m) || [])[1];
+    if (!event || !data) continue;
+    const payload = JSON.parse(data);
+    if (event === "depth") console.log("search progress", payload);
+    if (event === "result") console.log("final move", payload.move);
+  }
+}</code></pre>
+  </div>
+
+  <div class="code-window" style="margin-top:14px">
+    <div class="code-tabs">
+      <button class="code-tab active" type="button" disabled>cURL</button>
+      <button class="copy-code" type="button" data-copy-target="stream-curl">复制</button>
+    </div>
+    <pre class="code-body" id="stream-curl"><code>curl -N -X POST http://127.0.0.1:8090/api/v1/move/stream \
+  -H "Content-Type: application/json" \
+  -d '{
+    "game": "xiangqi",
+    "fen": "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1",
+    "difficulty": "master",
+    "timeLimitMs": 6000
+  }'</code></pre>
+  </div>
+
+  <div class="callout">
+    <span class="callout-icon">i</span>
+    <div><strong>为什么高难度需要它</strong>：<code>master</code> 可能在 6 秒内完成 6–8 层思考。<code>depth</code> 事件让前端知道服务没有卡死，也能展示“当前看到的最佳走法”如何随深度变化。服务端每 5 秒发送一条 SSE 注释作为心跳；客户端断开后思考会被取消。</div>
+  </div>
+</section>
+
+<section class="section wrap">
+  <div class="cta-panel">
+    <div>
+      <div class="kicker">TRY IT</div>
+      <h2>在调试器里观察流式进度</h2>
+      <p>选择 <code>master</code>，点击“流式计算”，即可看到每一层 depth 事件。</p>
+    </div>
+    <div class="cta-actions">
+      <a class="btn btn-primary" href="/playground">打开调试器 <span>→</span></a>
+      <a class="btn btn-ghost" href="/docs">接口参考</a>
+    </div>
+  </div>
+</section>{{end}}

@@ -1,0 +1,9 @@
+# auto-chess · AI 棋类对弈服务
+web:
+  server:
+    port: 8090
+    context_path: ""
+    max_body_size: 1048576 # 1 MiB，棋盘请求足够
+    read_timeout: 30
+  log:
+    level: info

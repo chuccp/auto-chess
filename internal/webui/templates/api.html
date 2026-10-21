@@ -1,0 +1,277 @@
+{{define "api"}}<section class="page-hero wrap">
+  <div class="breadcrumb"><a href="/">首页</a><span>/</span><span>接口参考</span></div>
+  <div class="page-hero-grid">
+    <div>
+      <div class="kicker">REFERENCE</div>
+      <h1>接口参考</h1>
+      <p class="lead">所有响应均为 UTF-8 JSON。成功为 <code>{"ok":true,"data":...}</code>，失败为 <code>{"ok":false,"error":...}</code>。</p>
+    </div>
+    <div class="page-hero-aside">
+      <div class="aside-row"><span>核心接口</span><code>POST /api/v1/move</code></div>
+      <div class="aside-row"><span>流式接口</span><code>GET/POST /api/v1/move/stream</code></div>
+      <div class="aside-row"><span>辅助接口</span><code>games / legal-moves / apply-move</code></div>
+    </div>
+  </div>
+  {{template "docs-subnav" .}}
+</section>
+
+<section class="section wrap section-tight">
+  <div class="section-head">
+    <div>
+      <div class="kicker">BY GAME</div>
+      <h2>按棋种查看接口</h2>
+    </div>
+    <p class="section-desc">每种棋种的棋盘格式、走法字段、完整请求/响应示例和注意事项都有一页独立说明。</p>
+  </div>
+  <div class="doc-game-grid">
+    {{range .Games}}
+    <a class="doc-game-card" href="/games/{{.ID}}#api">
+      <div class="doc-game-top">
+        <span class="game-icon" aria-hidden="true" data-i18n-ignore="1">{{icon .ID}}</span>
+        <span><strong>{{.Name}}</strong><small>{{.EnglishName}}</small></span>
+      </div>
+      <p>{{.Tagline}}</p>
+      <div class="doc-game-meta">
+        <code>{{if eq .Board.Type "fen"}}FEN{{else}}board[{{.Board.Cells}}]{{end}}</code>
+        <span>{{.InitialPosition.LegalMoveCount}} 种初始走法</span>
+      </div>
+      <span class="doc-game-link">查看 {{.Name}} 接口详解 →</span>
+    </a>
+    {{end}}
+  </div>
+</section>
+
+<section class="section wrap section-tight">
+  <div class="endpoint-list">
+    <article class="endpoint primary">
+      <div class="endpoint-head">
+        <span class="method post">POST</span>
+        <code>/api/v1/move</code>
+        <span class="tag">核心</span>
+      </div>
+      <p>传入当前棋盘与行棋方，返回 AI 选择的最佳走法、评估与思考信息。</p>
+      <div class="endpoint-meta"><span>无状态</span><span>JSON</span><span>CORS</span></div>
+    </article>
+    <article class="endpoint">
+      <div class="endpoint-head">
+        <span class="method post">POST</span>
+        <span class="method get">GET</span>
+        <code>/api/v1/move/stream</code>
+        <span class="tag">SSE</span>
+      </div>
+      <p>同样的局面请求，用 SSE 流式推送每一层思考过程，最后返回 result。</p>
+      <div class="endpoint-meta"><span>text/event-stream</span><span>心跳</span><span>可取消</span></div>
+    </article>
+    <article class="endpoint">
+      <div class="endpoint-head">
+        <span class="method post">POST</span>
+        <code>/api/v1/apply-move</code>
+        <span class="tag">对弈</span>
+      </div>
+      <p>无状态地应用一步棋，返回新棋盘、轮次、状态与合法走法；供 <a href="/play">在线对弈</a> 页面更新局面。</p>
+      <div class="endpoint-meta"><span>无状态</span><span>返回完整局面</span><span>CORS</span></div>
+    </article>
+    <article class="endpoint">
+      <div class="endpoint-head">
+        <span class="method post">POST</span>
+        <code>/api/v1/legal-moves</code>
+      </div>
+      <p>返回指定局面的全部合法走法，便于落点提示或规则校验。</p>
+    </article>
+    <article class="endpoint">
+      <div class="endpoint-head">
+        <span class="method get">GET</span>
+        <code>/api/v1/games</code>
+      </div>
+      <p>棋种目录，含棋盘元数据、初始局面、规则和坐标约定。</p>
+    </article>
+    <article class="endpoint">
+      <div class="endpoint-head">
+        <span class="method get">GET</span>
+        <code>/api/v1/games/{game}</code>
+      </div>
+      <p>单个棋种的完整元数据。HTML 详情页为 <code>/games/{game}</code>。</p>
+    </article>
+    <article class="endpoint">
+      <div class="endpoint-head">
+        <span class="method get">GET</span>
+        <code>/api/v1/health</code>
+      </div>
+      <p>健康检查：服务版本、已加载棋种数、运行时长。</p>
+    </article>
+  </div>
+
+  <div class="callout">
+    <span class="callout-icon">i</span>
+    <div><strong>终局约定</strong>：当前局面没有合法走法时，<code>move</code> 返回 <code>200</code>、<code>move: null</code>、<code>gameOver: true</code>，不会把“已结束”当成 HTTP 错误。</div>
+  </div>
+</section>
+
+<section class="section wrap">
+  <div class="section-head">
+    <div>
+      <div class="kicker">SCHEMA</div>
+      <h2>请求与响应</h2>
+    </div>
+    <p class="section-desc">FEN 棋种与网格棋种共用同一层请求结构。</p>
+  </div>
+
+  <div class="doc-grid">
+    <article class="doc-card">
+      <h3>请求字段 <span class="muted">POST /api/v1/move</span></h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>game</code></td><td>string</td><td>棋种 id，如 <code>xiangqi</code>；路径形式可省略。</td></tr>
+            <tr><td><code>position.fen</code></td><td>string</td><td>象棋 / 国际象棋使用；也可把 <code>fen</code> 放在顶层。</td></tr>
+            <tr><td><code>position.board</code></td><td>string[]</td><td>网格棋种使用；行优先扁平数组，空格用 <code>""</code>。</td></tr>
+            <tr><td><code>position.turn</code></td><td>string</td><td>轮到谁走：象棋 <code>w/b</code>，网格棋种见棋种页。</td></tr>
+            <tr><td><code>difficulty</code></td><td>string</td><td><code>easy</code> / <code>normal</code> / <code>hard</code> / <code>master</code>，默认 normal。</td></tr>
+            <tr><td><code>timeLimitMs</code></td><td>int</td><td>思考时间上限，50–15000，默认随难度。</td></tr>
+            <tr><td><code>maxDepth</code></td><td>int</td><td>最大思考深度，1–10；不传则按难度。</td></tr>
+            <tr><td><code>seed</code></td><td>int64</td><td>随机种子，用于部分棋种的等价走法选择。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="fineprint"><code>fen</code> / <code>board</code> / <code>turn</code> 也可以放在顶层；嵌套的 <code>position</code> 优先。</p>
+    </article>
+
+    <article class="doc-card">
+      <h3>响应字段 <span class="muted">data</span></h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>字段</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>move</code></td><td>最佳走法，结构见下方“走法对象”。</td></tr>
+            <tr><td><code>engine</code></td><td>实际使用的引擎：<code>chess-3</code> / <code>godogpaw</code> / <code>builtin</code>。</td></tr>
+            <tr><td><code>status</code></td><td>走完这一步后的状态：<code>playing</code> / <code>check</code> / <code>checkmate</code> / <code>stalemate</code> / <code>win</code> / <code>draw</code>。</td></tr>
+            <tr><td><code>gameOver</code></td><td>该走法是否直接结束对局。</td></tr>
+            <tr><td><code>evaluation</code></td><td>评分（centipawn）与视角；将杀时含 <code>mateIn</code>。</td></tr>
+            <tr><td><code>search</code></td><td>实际深度、节点数、耗时、是否超时、PV 前缀。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </article>
+  </div>
+
+  <div class="doc-grid">
+    <article class="doc-card">
+      <h3>走法对象 <span class="muted">move</span></h3>
+      <pre class="schema-code">{
+  "uci": "h2e2",                  // chess / xiangqi
+  "from": { "index": 25, "row": 2, "col": 7 },
+  "to":   { "index": 22, "row": 2, "col": 4 },
+  "index": { "index": 112, "row": 7, "col": 7 },
+  "promotion": "q",               // chess promotion
+  "notation": "h2e2",
+  "captured": "bP",               // optional
+  "flipped": 3,                   // reversi flips
+  "jump": true                    // checkers / jungle river jump
+}</pre>
+    </article>
+    <article class="doc-card">
+      <h3>合法走法 <span class="muted">POST /api/v1/legal-moves</span></h3>
+      <p>请求体与 <code>move</code> 相同，不需要难度与时间。响应中的 <code>position</code> 包含棋盘、FEN（若适用）、状态、全部合法走法。</p>
+      <pre class="schema-code">{
+  "ok": true,
+  "data": {
+    "game": "xiangqi",
+    "count": 44,
+    "position": {
+      "turn": "w",
+      "status": { "state": "playing" },
+      "legalMoves": [ { "uci": "b0c2" }, ... ]
+    }
+  }
+}</pre>
+    </article>
+    <article class="doc-card">
+      <h3>应用走法 <span class="muted">POST /api/v1/apply-move</span></h3>
+      <p>把一步棋应用到当前局面，返回新棋盘、轮次、状态与全部合法走法。<code>move</code> 可以只传 <code>uci</code>，也可以传 <code>index</code> 或 <code>from</code> / <code>to</code>。</p>
+      <pre class="schema-code">{
+  "ok": true,
+  "data": {
+    "game": "xiangqi",
+    "move": { "uci": "h2e2", "from": {...}, "to": {...} },
+    "position": {
+      "fen": "...",
+      "turn": "b",
+      "status": { "state": "playing" },
+      "legalMoves": [ { "uci": "..." }, ... ]
+    }
+  }
+}</pre>
+    </article>
+  </div>
+</section>
+
+<section class="section wrap">
+  <div class="section-head">
+    <div>
+      <div class="kicker">PARAMETERS</div>
+      <h2>难度、错误与跨域</h2>
+    </div>
+    <p class="section-desc">思考时间是预算，不保证精确耗时；迭代加深会在超时前保留完整结果。</p>
+  </div>
+
+  <div class="doc-grid">
+    <article class="doc-card">
+      <h3>难度与时间</h3>
+      <p class="fineprint">国际象棋 / 中国象棋由引擎按难度调整深度，<code>master</code> 使用时间限制迭代加深；下表为其余棋种内置引擎的默认值。</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>difficulty</th><th>默认深度</th><th>默认时间</th><th>适合</th></tr></thead>
+          <tbody>
+            <tr><td><code>easy</code></td><td>2</td><td>300ms</td><td>快速响应、弱 AI</td></tr>
+            <tr><td><code>normal</code></td><td>4</td><td>1000ms</td><td>常规对弈</td></tr>
+            <tr><td><code>hard</code></td><td>5</td><td>2500ms</td><td>更强对抗</td></tr>
+            <tr><td><code>master</code></td><td>7</td><td>6000ms</td><td>离线分析</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="fineprint">各棋种会按分支数调整实际上限；<code>maxDepth</code> 与 <code>timeLimitMs</code> 可覆盖默认值。</p>
+    </article>
+
+    <article class="doc-card">
+      <h3>错误码</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>HTTP</th><th>code</th><th>含义</th></tr></thead>
+          <tbody>
+            <tr><td>400</td><td><code>INVALID_POSITION</code></td><td>棋盘 / FEN 格式错误或局面不合法</td></tr>
+            <tr><td>400</td><td><code>BAD_REQUEST</code></td><td>缺少参数或 JSON 不合法</td></tr>
+            <tr><td>404</td><td><code>UNKNOWN_GAME</code></td><td>棋种 id 不存在</td></tr>
+            <tr><td>504</td><td><code>TIMEOUT</code></td><td>思考超时且没有可用走法</td></tr>
+            <tr><td>500</td><td><code>INTERNAL_ERROR</code></td><td>服务内部错误</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </article>
+  </div>
+
+  <div class="doc-grid">
+    <article class="doc-card">
+      <h3>跨域</h3>
+      <p>所有已注册接口统一经过全局 CORS 过滤器，返回 <code>Access-Control-Allow-Origin: *</code>。普通 JSON、SSE、错误响应和文档资源都包含跨域头；<code>OPTIONS</code> 预检返回 <code>204</code>，并允许 EventSource 重连所需的 <code>Last-Event-ID</code>。</p>
+    </article>
+    <article class="doc-card">
+      <h3>无状态边界</h3>
+      <p>服务端不保存棋谱、不维护会话、不检测三次重复。需要这些能力时，由调用方根据自己保存的历史判断；接口只负责当前局面下的走子计算。</p>
+    </article>
+  </div>
+</section>
+
+<section class="section wrap">
+  <div class="cta-panel">
+    <div>
+      <div class="kicker">NEXT</div>
+      <h2>查看流式思考或棋种格式</h2>
+      <p>高难度思考用 SSE 观察逐层过程；各棋种格式与初始局面见棋种页。</p>
+    </div>
+    <div class="cta-actions">
+      <a class="btn btn-primary" href="/docs/stream">SSE 文档 <span>→</span></a>
+      <a class="btn btn-ghost" href="/games">棋种目录</a>
+    </div>
+  </div>
+</section>{{end}}

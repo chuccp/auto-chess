@@ -1,0 +1,64 @@
+{{define "games"}}<section class="page-hero wrap">
+  <div class="breadcrumb"><a href="/">首页</a><span>/</span><span>棋种</span></div>
+  <div class="page-hero-grid">
+    <div>
+      <div class="kicker">GAMES</div>
+      <h1>支持的棋种</h1>
+      <p class="lead">同一套请求结构，按棋种切换 <code>fen</code> 或扁平 <code>board</code>。点击棋种查看规则、坐标与初始局面。</p>
+    </div>
+    <div class="page-hero-aside">
+      <div class="aside-row"><span>棋种数量</span><code>{{len .Games}}</code></div>
+      <div class="aside-row"><span>局面格式</span><code>FEN / board[]</code></div>
+      <div class="aside-row"><span>走法格式</span><code>UCI / UCCI / index / from-to</code></div>
+    </div>
+  </div>
+  {{template "docs-subnav" .}}
+</section>
+
+<section class="section wrap section-tight">
+  <div class="games-grid">
+    {{range .Games}}{{template "game-card" .}}{{end}}
+  </div>
+</section>
+
+<section class="section wrap">
+  <div class="section-head">
+    <div>
+      <div class="kicker">FORMATS</div>
+      <h2>局面格式速查</h2>
+    </div>
+    <p class="section-desc">完整规则、图例与初始局面由 <code>GET /api/v1/games/{game}</code> 返回。</p>
+  </div>
+  <div class="table-wrap formats-table">
+    <table>
+      <thead><tr><th>棋种</th><th>棋盘</th><th>局面</th><th>走法</th><th>先手</th></tr></thead>
+      <tbody>
+        <tr><td><b>国际象棋</b> <code>chess</code></td><td>8×8</td><td>FEN</td><td>UCI：<code>e2e4</code>，升变 <code>e7e8q</code></td><td>白 <code>w</code></td></tr>
+        <tr><td><b>中国象棋</b> <code>xiangqi</code></td><td>9×10</td><td>FEN</td><td>UCCI：<code>h2e2</code></td><td>红 <code>w</code></td></tr>
+        <tr><td><b>五子棋</b> <code>gomoku</code></td><td>15×15</td><td><code>board[225]</code></td><td><code>index</code> 落点</td><td>黑 <code>b</code></td></tr>
+        <tr><td><b>黑白棋</b> <code>reversi</code></td><td>8×8</td><td><code>board[64]</code></td><td><code>index</code> 落点</td><td>黑 <code>b</code></td></tr>
+        <tr><td><b>四子棋</b> <code>connect4</code></td><td>7×6</td><td><code>board[42]</code></td><td><code>index</code> 落点（该列最低空位）</td><td>红 <code>r</code></td></tr>
+        <tr><td><b>斗兽棋</b> <code>jungle</code></td><td>7×9</td><td><code>board[63]</code>，如 <code>"rE"</code></td><td><code>from</code> / <code>to</code></td><td>红 <code>r</code></td></tr>
+        <tr><td><b>中国跳棋</b> <code>checkers</code></td><td>121 孔</td><td><code>board[121]</code></td><td><code>from</code> / <code>to</code></td><td>红 <code>r</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="callout">
+    <span class="callout-icon">!</span>
+    <div><strong>仅接口</strong>：没有房间、账号、悔棋、计时或棋谱存储。棋盘与历史由调用方持有，服务只计算下一步。</div>
+  </div>
+</section>
+
+<section class="section wrap">
+  <div class="cta-panel">
+    <div>
+      <div class="kicker">PLAY</div>
+      <h2>选一个棋种，直接开一盘</h2>
+      <p>无需登录，选择执子后点击棋盘落子；对局会保存在当前浏览器中。</p>
+    </div>
+    <div class="cta-actions">
+      <a class="btn btn-primary" href="/play">开始对弈 <span>→</span></a>
+      <a class="btn btn-ghost" href="/guide">快速开始</a>
+    </div>
+  </div>
+</section>{{end}}

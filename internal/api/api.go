@@ -164,6 +164,7 @@ type moveRequest struct {
 	Board       []string       `json:"board,omitempty"`
 	Turn        string         `json:"turn,omitempty"`
 	Difficulty  string         `json:"difficulty,omitempty"`
+	Engine      string         `json:"engine,omitempty"`
 	TimeLimitMs int            `json:"timeLimitMs,omitempty"`
 	MaxDepth    int            `json:"maxDepth,omitempty"`
 	Seed        int64          `json:"seed,omitempty"`
@@ -244,6 +245,9 @@ func bindMoveRequest(req *web.Request) (moveRequest, error) {
 	if v := req.Query("difficulty"); v != "" {
 		body.Difficulty = v
 	}
+	if v := req.Query("engine"); v != "" {
+		body.Engine = v
+	}
 	if v := req.Query("timeLimitMs"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			body.TimeLimitMs = n
@@ -274,10 +278,17 @@ type preparedSearch struct {
 	options    game.SearchOptions
 	limit      time.Duration
 	difficulty string
+	// engine is the caller-selected engine name ("", "auto" and the game
+	// default all collapse to the default engine label).
+	engine string
 }
 
 func (c *Controller) prepareSearch(req *web.Request, body moveRequest) (*preparedSearch, error) {
 	g, gameID, err := c.resolve(req, body.Game)
+	if err != nil {
+		return nil, err
+	}
+	engine, err := resolveEngine(g, body.Engine, gameID)
 	if err != nil {
 		return nil, err
 	}
@@ -313,13 +324,41 @@ func (c *Controller) prepareSearch(req *web.Request, body moveRequest) (*prepare
 		position:   pos,
 		limit:      limit,
 		difficulty: difficulty,
+		engine:     engine,
 		options: game.SearchOptions{
 			Difficulty: difficulty,
 			MaxDepth:   depth,
 			TimeLimit:  limit,
 			Seed:       seed,
+			Engine:     engine,
 		},
 	}, nil
+}
+
+// engineNames lists the search engines a game accepts, default first.
+func engineNames(g game.Game) []string {
+	if lister, ok := g.(game.EngineLister); ok {
+		return lister.Engines()
+	}
+	return []string{"builtin"}
+}
+
+// resolveEngine validates the optional caller engine selection and returns the
+// engine label to report. Empty values keep the game default and resolve to the
+// default engine name. Unknown or unavailable engines return CodeUnknownEngine.
+func resolveEngine(g game.Game, requested, gameID string) (string, error) {
+	names := engineNames(g)
+	name := strings.ToLower(strings.TrimSpace(requested))
+	if name == "" || name == "auto" {
+		return names[0], nil
+	}
+	for _, candidate := range names {
+		if strings.EqualFold(candidate, name) {
+			return name, nil
+		}
+	}
+	return "", game.NewError(game.CodeUnknownEngine,
+		"%s 不支持引擎 %q，可选：%s", gameID, requested, strings.Join(names, ", "))
 }
 
 func (c *Controller) move(req *web.Request) (any, error) {
@@ -370,16 +409,6 @@ func sseError(err error) errorBody {
 	return errorBody{OK: false, Error: errorDetail{Code: code, Message: message}}
 }
 
-func defaultEngineName(gameID string) string {
-	switch gameID {
-	case "chess":
-		return "chess-3"
-	case "xiangqi":
-		return "godogpaw"
-	}
-	return "builtin"
-}
-
 // moveStream streams iterative-deepening progress over SSE and ends with a
 // result event. POST carries a normal JSON body. GET supports EventSource:
 //
@@ -406,7 +435,7 @@ func (c *Controller) moveStream(req *web.Request) (any, error) {
 		if !sseSend(stream, "start", map[string]any{
 			"ok":          true,
 			"game":        prep.gameID,
-			"engine":      defaultEngineName(prep.gameID),
+			"engine":      prep.engine,
 			"difficulty":  prep.difficulty,
 			"timeLimitMs": prep.limit.Milliseconds(),
 			"maxDepth":    prep.options.MaxDepth,

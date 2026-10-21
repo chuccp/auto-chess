@@ -66,6 +66,15 @@ func (g *Game) WithNativeEngine() *Game {
 	return g
 }
 
+// Engines lists the search backends Search accepts, default first. Chess-3 is
+// compiled in and always available.
+func (g *Game) Engines() []string {
+	if g.native {
+		return []string{"chess-3", "builtin"}
+	}
+	return []string{"builtin", "chess-3"}
+}
+
 // Meta implements game.Game.
 func (g *Game) Meta() game.Meta {
 	return game.Meta{
@@ -195,8 +204,19 @@ func (g *Game) Apply(pos game.Position, in game.MoveInput) (game.Position, game.
 }
 
 // Search implements game.Game.
+// Search implements game.Game. SearchOptions.Engine selects "chess-3" or
+// "builtin"; empty (or "auto") picks the construction default.
 func (g *Game) Search(ctx context.Context, pos game.Position, opts game.SearchOptions) (game.SearchResult, error) {
-	if g.native {
+	engine := strings.ToLower(strings.TrimSpace(opts.Engine))
+	if engine == "" || engine == "auto" {
+		if g.native {
+			engine = "chess-3"
+		} else {
+			engine = "builtin"
+		}
+	}
+	switch engine {
+	case "chess-3":
 		st := pos.(*State)
 		if status := g.status(st); status.Finished() {
 			return game.SearchResult{
@@ -208,8 +228,12 @@ func (g *Game) Search(ctx context.Context, pos game.Position, opts game.SearchOp
 			}, nil
 		}
 		return g.searchNative(ctx, pos, opts)
+	case "builtin":
+		return g.searchBuiltin(ctx, pos, opts)
+	default:
+		return game.SearchResult{}, game.NewError(game.CodeUnknownEngine,
+			"chess 不支持引擎 %q，可选：%s", opts.Engine, strings.Join(g.Engines(), ", "))
 	}
-	return g.searchBuiltin(ctx, pos, opts)
 }
 
 func (g *Game) searchBuiltin(ctx context.Context, pos game.Position, opts game.SearchOptions) (game.SearchResult, error) {

@@ -22,6 +22,7 @@
   const el = {
     gameSelect: $("#game-select"),
     difficulty: $("#difficulty"),
+    engine: $("#engine"),
     timeLimit: $("#time-limit"),
     maxDepth: $("#max-depth"),
     requestJSON: $("#request-json"),
@@ -109,6 +110,7 @@
       difficulty: el.difficulty.value || "normal",
       timeLimitMs: Number(el.timeLimit.value) || DIFFICULTY_TIME[el.difficulty.value] || 1000,
     };
+    if (el.engine && el.engine.value) request.engine = el.engine.value;
     const depth = Number(el.maxDepth.value);
     if (depth > 0) request.maxDepth = depth;
     return request;
@@ -133,6 +135,20 @@
     state.currentId = meta.id;
     if (el.gameSelect) el.gameSelect.value = meta.id;
     if (el.gameHint) el.gameHint.textContent = gameHint(meta);
+    if (el.engine) {
+      const engines = Array.isArray(meta.engines) && meta.engines.length ? meta.engines : ["builtin"];
+      el.engine.innerHTML = "";
+      const def = document.createElement("option");
+      def.value = "";
+      def.textContent = T(`默认（${engines[0]}）`, `Default (${engines[0]})`);
+      el.engine.appendChild(def);
+      for (const name of engines) {
+        const opt = document.createElement("option");
+        opt.value = name;
+        opt.textContent = name;
+        el.engine.appendChild(opt);
+      }
+    }
     if (options.resetControls !== false) {
       const diff = el.difficulty.value || "normal";
       el.timeLimit.value = String(DIFFICULTY_TIME[diff] || 1000);
@@ -148,6 +164,8 @@
       if (!obj || typeof obj !== "object" || Array.isArray(obj)) return;
       obj.difficulty = el.difficulty.value;
       obj.timeLimitMs = Number(el.timeLimit.value) || DIFFICULTY_TIME[el.difficulty.value] || 1000;
+      if (el.engine && el.engine.value) obj.engine = el.engine.value;
+      else delete obj.engine;
       const depth = Number(el.maxDepth.value);
       if (depth > 0) obj.maxDepth = depth;
       el.requestJSON.value = pretty(obj);
@@ -473,6 +491,7 @@
     });
     el.timeLimit?.addEventListener("change", syncControlsToRequest);
     el.maxDepth?.addEventListener("change", syncControlsToRequest);
+    el.engine?.addEventListener("change", syncControlsToRequest);
     el.sendBtn?.addEventListener("click", sendRequest);
     el.streamBtn?.addEventListener("click", sendStream);
     el.resetBtn?.addEventListener("click", () => {

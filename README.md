@@ -178,7 +178,7 @@ curl -N -X POST http://127.0.0.1:8090/api/v1/move/stream \
 
 | event | data | 说明 |
 |---|---|---|
-| `start` | game / difficulty / timeLimitMs / maxDepth / turn | 思考开始 |
+| `start` | game / engine / difficulty / timeLimitMs / maxDepth / turn | 思考开始（`engine` 为本次实际选择的引擎） |
 | `depth` | depth / score / nodes / timeMs / best / pv | 每完成一层迭代加深 |
 | `result` | 与 `/api/v1/move` 的 `data` 相同 | 最终走法，随后连接关闭 |
 | `error` | ok:false / error.code / error.message | 搜索或参数错误 |
@@ -246,11 +246,31 @@ GET /api/v1/move/stream?payload=%7B%22game%22%3A%22gomoku%22%2C...%7D
 | `position.board` | string[] | 视棋种 | 网格棋种，行优先扁平数组，空格用 `""` |
 | `position.turn` | string | 视棋种 | 行棋方 |
 | `difficulty` | string | 否 | `easy` / `normal` / `hard` / `master`，默认 `normal` |
+| `engine` | string | 否 | 选择搜索引擎，见下方 [引擎选择](#引擎选择)；默认使用棋种默认引擎 |
 | `timeLimitMs` | int | 否 | 50–15000，默认随难度 |
 | `maxDepth` | int | 否 | 1–10，不传则按难度 |
 | `seed` | int64 | 否 | 随机种子；用于部分棋种在等价走法/立即获胜走法中的选择 |
 
 `fen` / `board` / `turn` 也可以放在顶层。嵌套的 `position` 优先。
+
+### 引擎选择
+
+`engine` 字段允许按请求挑选搜索引擎（SSE 的 `start` 事件会回显所选引擎）：
+
+| 棋种 | 可选引擎（默认在前） |
+|---|---|
+| 中国象棋 | 加载 NNUE 时 `pikafish-nnue`、`godogpaw`、`builtin`；否则 `godogpaw`、`builtin` |
+| 国际象棋 | `chess-3`、`builtin` |
+| 其余棋种 | `builtin` |
+
+- 传空或 `"auto"` 使用默认引擎；
+- `godogpaw` / `chess-3` / `builtin` 始终可用；`pikafish-nnue` 需要先配置 NNUE 网络；
+- 引擎名非法或不可用时返回 `400`、`UNKNOWN_ENGINE`，错误消息列出可选值；
+- `/api/v1/games` 返回每个棋种的 `engines` 列表，可用它做动态下拉。
+
+```json
+{ "game": "xiangqi", "fen": "...", "engine": "godogpaw", "difficulty": "master" }
+```
 
 ### 响应字段
 
@@ -329,6 +349,7 @@ GET /api/v1/move/stream?payload=%7B%22game%22%3A%22gomoku%22%2C...%7D
 |---|---|---|
 | 400 | `BAD_REQUEST` | 缺少参数、JSON 不合法 |
 | 400 | `INVALID_POSITION` | 棋盘 / FEN 格式错误或局面不合法 |
+| 400 | `UNKNOWN_ENGINE` | 引擎名不存在或当前不可用（如未加载 NNUE 时请求 `pikafish-nnue`） |
 | 404 | `UNKNOWN_GAME` | 棋种 id 不存在 |
 | 504 | `TIMEOUT` | 搜索超时且没有可用走法 |
 | 500 | `INTERNAL_ERROR` | 服务内部错误 |
@@ -387,7 +408,7 @@ Windows 校验：
 Get-FileHash .\pikafish.nnue -Algorithm SHA256
 ```
 
-加载成功后，`/api/v1/move` 返回的 `engine` 为 `pikafish-nnue`；文件不存在或解析失败时自动回退 `godogpaw`，不会阻塞启动。
+加载成功后，`/api/v1/move` 默认返回的 `engine` 为 `pikafish-nnue`，此时仍可通过 `"engine": "godogpaw"` 或 `"engine": "builtin"` 按请求切换（见 [引擎选择](#引擎选择)）；文件不存在或解析失败时自动回退 `godogpaw`，不会阻塞启动。
 
 权重文件不提交到仓库。该实现是纯 Go 的 NNUE 推理，不调用 exe、CGo 或浏览器 WASM。
 

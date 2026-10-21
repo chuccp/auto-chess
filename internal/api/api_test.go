@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/chuccp/auto-chess/internal/api"
+	"github.com/chuccp/auto-chess/internal/game"
 	"github.com/chuccp/auto-chess/internal/registry"
 	"github.com/chuccp/auto-chess/internal/webui"
 	wf "github.com/chuccp/go-web-frame"
@@ -498,5 +499,127 @@ func TestCORSAndDocs(t *testing.T) {
 	}
 	if !strings.Contains(string(buf), "auto-chess") {
 		t.Fatal("docs page does not contain the service name")
+	}
+}
+
+func TestMoveEngineSelection(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.Close()
+
+	play := func(engine string) (int, map[string]any) {
+		t.Helper()
+		body := map[string]any{
+			"game":        "chess",
+			"fen":         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+			"difficulty":  "easy",
+			"timeLimitMs": 300,
+		}
+		if engine != "" {
+			body["engine"] = engine
+		}
+		res, out := postJSON(t, srv.URL+"/api/v1/move", body)
+		return res.StatusCode, out
+	}
+
+	status, out := play("builtin")
+	if status != 200 || out["ok"] != true {
+		t.Fatalf("builtin move: status=%d body=%v", status, out)
+	}
+	if got := out["data"].(map[string]any)["engine"]; got != "builtin" {
+		t.Fatalf("builtin engine = %v", got)
+	}
+
+	status, out = play("chess-3")
+	if status != 200 || out["ok"] != true {
+		t.Fatalf("chess-3 move: status=%d body=%v", status, out)
+	}
+	if got := out["data"].(map[string]any)["engine"]; got != "chess-3" {
+		t.Fatalf("chess-3 engine = %v", got)
+	}
+
+	status, out = play("nope")
+	if out["ok"] != false {
+		t.Fatalf("unknown engine should fail: status=%d body=%v", status, out)
+	}
+	_ = status
+	errBody := out["error"].(map[string]any)
+	if errBody["code"] != game.CodeUnknownEngine {
+		t.Fatalf("unknown engine code = %v", errBody["code"])
+	}
+
+	// xiangqi without a loaded NNUE network must reject pikafish-nnue and
+	// accept godogpaw / builtin.
+	res, out := postJSON(t, srv.URL+"/api/v1/move", map[string]any{
+		"game":        "xiangqi",
+		"fen":         "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1",
+		"difficulty":  "easy",
+		"timeLimitMs": 300,
+		"engine":      "builtin",
+	})
+	if res.StatusCode != 200 || out["ok"] != true {
+		t.Fatalf("xiangqi builtin move: status=%d body=%v", res.StatusCode, out)
+	}
+	if got := out["data"].(map[string]any)["engine"]; got != "builtin" {
+		t.Fatalf("xiangqi builtin engine = %v", got)
+	}
+
+	_, out = postJSON(t, srv.URL+"/api/v1/move", map[string]any{
+		"game":        "xiangqi",
+		"fen":         "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1",
+		"difficulty":  "easy",
+		"timeLimitMs": 300,
+		"engine":      "pikafish-nnue",
+	})
+	if out["ok"] != false {
+		t.Fatalf("missing NNUE should reject pikafish-nnue: %v", out)
+	}
+	if got := out["error"].(map[string]any)["code"]; got != game.CodeUnknownEngine {
+		t.Fatalf("pikafish-nnue error code = %v", got)
+	}
+
+	// non-search games only accept builtin.
+	_, out = postJSON(t, srv.URL+"/api/v1/move", map[string]any{
+		"game":        "gomoku",
+		"difficulty":  "easy",
+		"timeLimitMs": 300,
+		"engine":      "godogpaw",
+	})
+	if out["ok"] != false {
+		t.Fatalf("gomoku must reject godogpaw: %v", out)
+	}
+	if got := out["error"].(map[string]any)["code"]; got != game.CodeUnknownEngine {
+		t.Fatalf("gomoku engine error code = %v", got)
+	}
+}
+
+func TestGamesListEngines(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.Close()
+	res := doRequest(t, http.MethodGet, srv.URL+"/api/v1/games", nil)
+	defer res.Body.Close()
+	var body struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			Games []struct {
+				ID      string   `json:"id"`
+				Engines []string `json:"engines"`
+			} `json:"games"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string][]string{}
+	for _, g := range body.Data.Games {
+		byID[g.ID] = g.Engines
+	}
+	if got := byID["xiangqi"]; len(got) == 0 || got[0] != "godogpaw" {
+		t.Fatalf("xiangqi engines = %v, want godogpaw first", got)
+	}
+	if got := byID["chess"]; len(got) == 0 || got[0] != "chess-3" {
+		t.Fatalf("chess engines = %v, want chess-3 first", got)
+	}
+	if got := byID["gomoku"]; len(got) != 1 || got[0] != "builtin" {
+		t.Fatalf("gomoku engines = %v, want [builtin]", got)
 	}
 }

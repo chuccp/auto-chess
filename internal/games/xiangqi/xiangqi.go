@@ -88,6 +88,35 @@ func (g *Game) WithNativeEngine() *Game {
 	return g
 }
 
+// WithNNUE loads a Pikafish 2024 .nnue network onto an existing game so callers
+// can pick between godogpaw, the NNUE search and the builtin evaluator per
+// request via SearchOptions.Engine.
+func (g *Game) WithNNUE(path string) error {
+	net, err := nnue.Load(path)
+	if err != nil {
+		return err
+	}
+	g.nnue = net
+	if workers := runtime.GOMAXPROCS(0); workers > g.workers {
+		g.workers = workers
+	}
+	return nil
+}
+
+// Engines lists the search backends Search accepts, default first. godogpaw is
+// always available (compiled in); pikafish-nnue appears only when the network
+// is loaded.
+func (g *Game) Engines() []string {
+	switch {
+	case g.nnue != nil:
+		return []string{"pikafish-nnue", "godogpaw", "builtin"}
+	case g.native:
+		return []string{"godogpaw", "builtin"}
+	default:
+		return []string{"builtin", "godogpaw"}
+	}
+}
+
 // Meta implements game.Game.
 func (g *Game) Meta() game.Meta {
 	return game.Meta{
@@ -214,9 +243,23 @@ func (g *Game) Apply(pos game.Position, in game.MoveInput) (game.Position, game.
 	return next, mv, nil
 }
 
-// Search implements game.Game.
+// Search implements game.Game. SearchOptions.Engine selects the backend:
+// "godogpaw", "pikafish-nnue" or "builtin". Empty (or "auto") picks the
+// default: pikafish-nnue when the network is loaded, godogpaw otherwise.
 func (g *Game) Search(ctx context.Context, pos game.Position, opts game.SearchOptions) (game.SearchResult, error) {
-	if g.native {
+	engine := strings.ToLower(strings.TrimSpace(opts.Engine))
+	if engine == "" || engine == "auto" {
+		switch {
+		case g.nnue != nil:
+			engine = "pikafish-nnue"
+		case g.native:
+			engine = "godogpaw"
+		default:
+			engine = "builtin"
+		}
+	}
+	switch engine {
+	case "godogpaw":
 		st := pos.(*State)
 		if status := g.status(st); status.Finished() {
 			return game.SearchResult{
@@ -228,8 +271,18 @@ func (g *Game) Search(ctx context.Context, pos game.Position, opts game.SearchOp
 			}, nil
 		}
 		return g.searchNative(ctx, pos, opts)
+	case "pikafish-nnue":
+		if g.nnue == nil {
+			return game.SearchResult{}, game.NewError(game.CodeUnknownEngine,
+				"引擎 pikafish-nnue 不可用：NNUE 网络未加载（请配置 engine.xiangqi.nnue 或 XIANGQI_NNUE）")
+		}
+		return g.searchPosition(ctx, pos, opts, true)
+	case "builtin":
+		return g.searchPosition(ctx, pos, opts, false)
+	default:
+		return game.SearchResult{}, game.NewError(game.CodeUnknownEngine,
+			"xiangqi 不支持引擎 %q，可选：%s", opts.Engine, strings.Join(g.Engines(), ", "))
 	}
-	return g.searchPosition(ctx, pos, opts)
 }
 
 func (g *Game) searchBuiltin(ctx context.Context, pos game.Position, opts game.SearchOptions) (game.SearchResult, error) {

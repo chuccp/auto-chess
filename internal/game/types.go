@@ -121,6 +121,7 @@ type Meta struct {
 	Difficulties    []string     `json:"difficulties"`
 	Features        []string     `json:"features"`
 	Rules           []string     `json:"rules"`
+	Engines         []string     `json:"engines,omitempty"`
 	InitialPosition PositionView `json:"initialPosition"`
 }
 
@@ -143,12 +144,24 @@ type Game interface {
 	Search(ctx context.Context, pos Position, opts SearchOptions) (SearchResult, error)
 }
 
+// EngineLister is implemented by games that can report which search engines
+// they accept in SearchOptions.Engine. The first entry is the default engine
+// used when the caller does not select one. Games without this method are
+// assumed to offer only "builtin".
+type EngineLister interface {
+	Engines() []string
+}
+
 // SearchOptions controls one AI search.
 type SearchOptions struct {
 	Difficulty string
 	MaxDepth   int
 	TimeLimit  time.Duration
 	Seed       int64
+	// Engine optionally selects a concrete search implementation, e.g.
+	// "godogpaw", "pikafish-nnue", "chess-3" or "builtin". Empty (or "auto")
+	// lets the game pick its default. Unsupported names return CodeUnknownEngine.
+	Engine string
 	// Progress, when set, is called after each completed iterative-deepening
 	// level. Callbacks must be fast and non-blocking; the SSE API forwards them
 	// through a buffered channel and drops stale progress if the client is slow.
@@ -228,6 +241,7 @@ const (
 	CodeIllegalMove     = "ILLEGAL_MOVE"
 	CodeGameOver        = "GAME_OVER"
 	CodeUnknownGame     = "UNKNOWN_GAME"
+	CodeUnknownEngine   = "UNKNOWN_ENGINE"
 	CodeBadRequest      = "BAD_REQUEST"
 	CodeTimeout         = "TIMEOUT"
 )

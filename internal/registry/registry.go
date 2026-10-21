@@ -36,11 +36,11 @@ func New(nnuePath ...string) *Registry {
 		games: make(map[string]game.Game),
 		byID:  make(map[string]game.Meta),
 	}
-	xiangqiGame := game.Game(xiangqi.New().WithNativeEngine())
+	// xiangqi keeps godogpaw available even when the NNUE network loads, so
+	// callers can pick the engine per request via the engine parameter.
+	xiangqiGame := xiangqi.New().WithNativeEngine()
 	if strings.TrimSpace(path) != "" {
-		if withNNUE, err := xiangqi.NewWithNNUE(path); err == nil {
-			xiangqiGame = withNNUE
-		} else {
+		if err := xiangqiGame.WithNNUE(path); err != nil {
 			fmt.Fprintf(os.Stderr, "加载 NNUE 失败，回退 godogpaw：%v\n", err)
 		}
 	}
@@ -55,6 +55,11 @@ func New(nnuePath ...string) *Registry {
 	} {
 		meta := g.Meta()
 		meta.InitialPosition = g.Encode(g.Initial(), true)
+		if lister, ok := g.(game.EngineLister); ok {
+			meta.Engines = lister.Engines()
+		} else {
+			meta.Engines = []string{"builtin"}
+		}
 		r.games[meta.ID] = g
 		r.metas = append(r.metas, meta)
 		r.byID[meta.ID] = meta

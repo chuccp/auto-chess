@@ -128,6 +128,7 @@
             <tr><td><code>position.board</code></td><td>string[]</td><td>网格棋种使用；行优先扁平数组，空格用 <code>""</code>。</td></tr>
             <tr><td><code>position.turn</code></td><td>string</td><td>轮到谁走：象棋 <code>w/b</code>，网格棋种见棋种页。</td></tr>
             <tr><td><code>difficulty</code></td><td>string</td><td><code>easy</code> / <code>normal</code> / <code>hard</code> / <code>master</code>，默认 normal。</td></tr>
+            <tr><td><code>engine</code></td><td>string</td><td>选择搜索引擎，见下方“引擎选择”；默认使用棋种默认引擎。</td></tr>
             <tr><td><code>timeLimitMs</code></td><td>int</td><td>思考时间上限，50–15000，默认随难度。</td></tr>
             <tr><td><code>maxDepth</code></td><td>int</td><td>最大思考深度，1–10；不传则按难度。</td></tr>
             <tr><td><code>seed</code></td><td>int64</td><td>随机种子，用于部分棋种的等价走法选择。</td></tr>
@@ -135,6 +136,18 @@
         </table>
       </div>
       <p class="fineprint"><code>fen</code> / <code>board</code> / <code>turn</code> 也可以放在顶层；嵌套的 <code>position</code> 优先。</p>
+      <h3>引擎选择 <span class="muted">engine</span></h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>棋种</th><th>可选引擎（默认在前）</th></tr></thead>
+          <tbody>
+            <tr><td>中国象棋</td><td>加载 NNUE 时 <code>pikafish-nnue</code> / <code>godogpaw</code> / <code>builtin</code>，否则 <code>godogpaw</code> / <code>builtin</code></td></tr>
+            <tr><td>国际象棋</td><td><code>chess-3</code> / <code>builtin</code></td></tr>
+            <tr><td>其余棋种</td><td><code>builtin</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="fineprint">传空或 <code>auto</code> 使用默认引擎；不可用的引擎返回 <code>UNKNOWN_ENGINE</code>。<code>/api/v1/games</code> 的 <code>engines</code> 字段列出每个棋种的可选值。</p>
     </article>
 
     <article class="doc-card">
@@ -144,7 +157,7 @@
           <thead><tr><th>字段</th><th>说明</th></tr></thead>
           <tbody>
             <tr><td><code>move</code></td><td>最佳走法，结构见下方“走法对象”。</td></tr>
-            <tr><td><code>engine</code></td><td>实际使用的引擎：<code>chess-3</code> / <code>godogpaw</code> / <code>builtin</code>。</td></tr>
+            <tr><td><code>engine</code></td><td>实际使用的引擎：<code>chess-3</code> / <code>godogpaw</code> / <code>pikafish-nnue</code> / <code>builtin</code>。</td></tr>
             <tr><td><code>status</code></td><td>走完这一步后的状态：<code>playing</code> / <code>check</code> / <code>checkmate</code> / <code>stalemate</code> / <code>win</code> / <code>draw</code>。</td></tr>
             <tr><td><code>gameOver</code></td><td>该走法是否直接结束对局。</td></tr>
             <tr><td><code>evaluation</code></td><td>评分（centipawn）与视角；将杀时含 <code>mateIn</code>。</td></tr>
@@ -241,6 +254,7 @@
           <tbody>
             <tr><td>400</td><td><code>INVALID_POSITION</code></td><td>棋盘 / FEN 格式错误或局面不合法</td></tr>
             <tr><td>400</td><td><code>BAD_REQUEST</code></td><td>缺少参数或 JSON 不合法</td></tr>
+            <tr><td>400</td><td><code>UNKNOWN_ENGINE</code></td><td>引擎名不存在或当前不可用（如未加载 NNUE 时请求 pikafish-nnue）</td></tr>
             <tr><td>404</td><td><code>UNKNOWN_GAME</code></td><td>棋种 id 不存在</td></tr>
             <tr><td>504</td><td><code>TIMEOUT</code></td><td>思考超时且没有可用走法</td></tr>
             <tr><td>500</td><td><code>INTERNAL_ERROR</code></td><td>服务内部错误</td></tr>

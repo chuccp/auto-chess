@@ -71,11 +71,16 @@ func (g *Game) evaluatePos(p *Position, acc *nnue.Accumulator, tables *searchTab
 	return score
 }
 
-func (g *Game) searchPosition(ctx context.Context, pos game.Position, opts game.SearchOptions) (game.SearchResult, error) {
+// searchPosition runs the bitboard search. When useNNUE is set the leaf
+// evaluation uses the Pikafish network; otherwise the handcrafted evaluator is
+// used and result.Engine reports "builtin".
+func (g *Game) searchPosition(ctx context.Context, pos game.Position, opts game.SearchOptions, useNNUE bool) (game.SearchResult, error) {
 	st := pos.(*State)
 	result := game.SearchResult{Game: "xiangqi", Difficulty: game.NormalizeDifficulty(opts.Difficulty)}
-	if g.nnue != nil {
+	if useNNUE {
 		result.Engine = "pikafish-nnue"
+	} else {
+		result.Engine = "builtin"
 	}
 	if status := g.status(st); status.Finished() {
 		result.GameOver = true
@@ -108,7 +113,7 @@ func (g *Game) searchPosition(ctx context.Context, pos game.Position, opts game.
 	nodes := int64(0)
 	timedOut := false
 	var rootAcc *nnue.Accumulator
-	if g.nnue != nil {
+	if useNNUE && g.nnue != nil {
 		rootAcc, _ = g.nnue.NewAccumulator(nnuePieces(root.Board))
 	}
 	tables := newSearchTables()

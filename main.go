@@ -48,13 +48,7 @@ func main() {
 	if raw := os.Getenv("XIANGQI_NNUE"); raw != "" {
 		nnuePath = raw
 	}
-	threads := cfg.GetIntOrDefault("engine.xiangqi.threads", 0)
-	if raw := os.Getenv("XIANGQI_THREADS"); raw != "" {
-		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
-			threads = n
-		}
-	}
-	reg := registry.NewWithThreads(nnuePath, threads)
+	reg := registry.New(nnuePath)
 	app := wf.NewBuilder(cfg).
 		Filter(&api.CORSFilter{}).
 		Filter(&api.RecoveryFilter{}).

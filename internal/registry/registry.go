@@ -32,19 +32,13 @@ func New(nnuePath ...string) *Registry {
 	if len(nnuePath) > 0 {
 		path = nnuePath[0]
 	}
-	return NewWithThreads(path, 0)
-}
-
-// NewWithThreads is New with an explicit xiangqi root-search thread count.
-func NewWithThreads(nnuePath string, threads int) *Registry {
 	r := &Registry{
 		games: make(map[string]game.Game),
 		byID:  make(map[string]game.Meta),
 	}
 	xiangqiGame := game.Game(xiangqi.New().WithNativeEngine())
-	if strings.TrimSpace(nnuePath) != "" {
-		if withNNUE, err := xiangqi.NewWithNNUE(nnuePath); err == nil {
-			withNNUE.WithThreads(threads)
+	if strings.TrimSpace(path) != "" {
+		if withNNUE, err := xiangqi.NewWithNNUE(path); err == nil {
 			xiangqiGame = withNNUE
 		} else {
 			fmt.Fprintf(os.Stderr, "加载 NNUE 失败，回退 godogpaw：%v\n", err)

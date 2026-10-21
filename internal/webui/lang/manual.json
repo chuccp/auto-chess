@@ -103,5 +103,9 @@
   "点击棋盘落子。": "Click the board to move.",
   "对局结束。可以新开一局。": "Game over. Start a new game.",
   "无状态：服务端不保存棋谱或轮次；重复局面、棋钟等规则由调用方维护。": "Stateless: the server keeps no move history or turn. Repetition, clocks, and similar rules stay client-side.",
-  "跨域：所有接口都返回 Access-Control-Allow-Origin: *，OPTIONS 预检返回 204。": "CORS: every endpoint returns Access-Control-Allow-Origin: *, and OPTIONS preflight returns 204."
+  "跨域：所有接口都返回 Access-Control-Allow-Origin: *，OPTIONS 预检返回 204。": "CORS: every endpoint returns Access-Control-Allow-Origin: *, and OPTIONS preflight returns 204.",
+  "接口": "API",
+  "SSE · 思考过程": "SSE · thinking",
+  "普通 · 一次返回": "Normal · full response",
+  "普通接口请求中…": "Normal request in flight..."
 }

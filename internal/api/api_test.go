@@ -385,6 +385,9 @@ func TestServerRenderedPages(t *testing.T) {
 		{"/games/chess", "国际象棋接口详解"},
 		{"/games/gomoku", "五子棋接口详解"},
 		{"/play", "直接和引擎下一盘"},
+		{"/play", "play-api-mode"},
+		{"/play", "SSE · 思考过程"},
+		{"/play", "普通 · 一次返回"},
 		{"/playground", "请求调试器"},
 	}
 	for _, tc := range cases {

@@ -13,6 +13,7 @@
 - 基于 [go-web-frame](https://github.com/chuccp/go-web-frame)（路由、过滤器、配置、生命周期）
 - 内置 Go `html/template` 多页面站点：首页、接入指南、接口参考、SSE、棋种目录/详情、在线对弈、调试器
 - `/play` 可直接与引擎对弈，对局自动保存在浏览器，支持继续、悔棋和切换棋种
+- 对弈时可选择普通 `/api/v1/move` 或 SSE `/api/v1/move/stream` 接口；SSE 模式会显示深度、节点和耗时
 - 已启用 CORS，浏览器前端可直接调用
 - 默认亮色主题；导航可切换亮色 / 深色并记住选择
 - 中文 / English 切换，页面、导航、棋种说明和接口文档均会切换语言

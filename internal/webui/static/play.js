@@ -7,6 +7,7 @@
   const T = (zh, en) => (isEN() ? en : zh);
   const EN_COLORS = { w: "White", b: "Black", r: "Red", y: "Yellow" };
   const RECORD_KEY = "auto-chess.play.games.v1";
+  const API_MODE_KEY = "auto-chess.play.api.v1";
   const RECORD_LIMIT = 12;
   const TIME_BY_DIFF = { easy: 300, normal: 1000, hard: 2500, master: 6000 };
   const DEFAULT_ENGINE = { chess: "chess-3", xiangqi: "godogpaw" };
@@ -37,6 +38,7 @@
     position: null,
     humanSide: "",
     difficulty: "normal",
+    apiMode: "sse",
     selected: null,
     legal: [],
     history: [],
@@ -52,6 +54,7 @@
     game: $("#play-game"),
     side: $("#play-side"),
     difficulty: $("#play-difficulty"),
+    apiMode: $("#play-api-mode"),
     newGame: $("#new-game-btn"),
     undo: $("#undo-btn"),
     board: $("#board"),
@@ -712,6 +715,7 @@
     el.game.disabled = state.busy;
     el.side.disabled = state.busy;
     el.difficulty.disabled = state.busy;
+    if (el.apiMode) el.apiMode.disabled = state.busy;
     if (el.hint) {
       el.hint.textContent = isFinished(state.position.status)
         ? T("对局结束。可以新开一局。", "Game over. Start a new game.")
@@ -1096,15 +1100,12 @@
       difficulty: state.difficulty,
       timeLimitMs: TIME_BY_DIFF[state.difficulty] || 1000,
     };
-    try {
-      return await aiMoveStream(body);
-    } catch (err) {
-      return await aiMoveNormal(body);
-    }
+    if (state.apiMode === "normal") return aiMoveNormal(body);
+    return aiMoveStream(body);
   }
 
   async function aiMoveNormal(body) {
-    setAIProgress(T("AI 思考中", "AI is thinking"), T("等待普通请求…", "Waiting for response..."), true);
+    setAIProgress(T("AI 思考中", "AI is thinking"), T("普通接口请求中…", "Normal request in flight..."), true);
     return api("/api/v1/move", body);
   }
 
@@ -1235,6 +1236,12 @@
       saveRecord();
       renderInfo();
     });
+    el.apiMode?.addEventListener("change", () => {
+      state.apiMode = el.apiMode.value === "normal" ? "normal" : "sse";
+      try {
+        localStorage.setItem(API_MODE_KEY, state.apiMode);
+      } catch (_) {}
+    });
     el.newGame?.addEventListener("click", () => newGame());
     el.undo?.addEventListener("click", undo);
     el.clearRecords?.addEventListener("click", () => {
@@ -1269,6 +1276,13 @@
     bindEvents();
 
     const params = new URLSearchParams(location.search);
+    try {
+      const storedMode = localStorage.getItem(API_MODE_KEY);
+      if (storedMode === "normal" || storedMode === "sse") state.apiMode = storedMode;
+    } catch (_) {}
+    const paramMode = params.get("api");
+    if (paramMode === "normal" || paramMode === "sse") state.apiMode = paramMode;
+    if (el.apiMode) el.apiMode.value = state.apiMode;
     const wantedGame = params.get("game");
     const meta = state.games.find((g) => g.id === wantedGame)
       || state.games.find((g) => g.id === "xiangqi")

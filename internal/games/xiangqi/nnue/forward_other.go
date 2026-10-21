@@ -14,4 +14,5 @@ func addFeatureAVX2(values *int32, add *int16, n int) {}
 
 func applyDelta2AVX2(values *int32, add, remove1, remove2 *int16, n int) {}
 
-func fc1AVX2(input *uint8, weights *int8, bias *int32, out *int32) {}
+func fc1AVX2(input *uint8, weights *int8, bias *int32, out *int32)        {}
+func fc0AVX2Grouped(input *uint8, weights *int8, bias *int32, out *int32) {}

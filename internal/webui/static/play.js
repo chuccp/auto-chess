@@ -55,6 +55,7 @@
     game: $("#play-game"),
     side: $("#play-side"),
     difficulty: $("#play-difficulty"),
+    engine: $("#play-engine"),
     apiMode: $("#play-api-mode"),
     newGame: $("#new-game-btn"),
     undo: $("#undo-btn"),
@@ -964,6 +965,7 @@
     el.game.disabled = state.busy;
     el.side.disabled = state.busy;
     el.difficulty.disabled = state.busy;
+    if (el.engine) el.engine.disabled = state.busy;
     if (el.apiMode) el.apiMode.disabled = state.busy;
     if (el.hint) {
       el.hint.textContent = isFinished(state.position.status)
@@ -1023,6 +1025,24 @@
     renderRecords();
   }
 
+  function engineSelectOptions(meta) {
+    if (!el.engine) return;
+    const engines = Array.isArray(meta.engines) && meta.engines.length ? meta.engines : ["builtin"];
+    const keep = engines.includes(el.engine.value) ? el.engine.value : "";
+    el.engine.innerHTML = "";
+    const def = document.createElement("option");
+    def.value = "";
+    def.textContent = T(`默认（${engines[0]}）`, `Default (${engines[0]})`);
+    el.engine.appendChild(def);
+    for (const name of engines) {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      el.engine.appendChild(opt);
+    }
+    el.engine.value = keep;
+  }
+
   function sideSelectOptions(meta, selected) {
     if (!el.side) return;
     const first = meta.initialPosition.turn;
@@ -1060,6 +1080,7 @@
     state.recordId = newRecordId();
     el.game.value = meta.id;
     sideSelectOptions(meta, state.humanSide);
+    engineSelectOptions(meta);
     el.difficulty.value = state.difficulty;
     saveRecord();
     render();
@@ -1087,6 +1108,7 @@
     state.aiDepth = 0;
     el.game.value = meta.id;
     sideSelectOptions(meta, state.humanSide);
+    engineSelectOptions(meta);
     el.difficulty.value = state.difficulty;
     saveRecord();
     render();
@@ -1353,6 +1375,7 @@
       difficulty: state.difficulty,
       timeLimitMs: TIME_BY_DIFF[state.difficulty] || 1000,
     };
+    if (el.engine && el.engine.value) body.engine = el.engine.value;
     if (state.apiMode === "normal") return aiMoveNormal(body);
     return aiMoveStream(body);
   }

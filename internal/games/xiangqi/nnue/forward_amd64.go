@@ -14,3 +14,9 @@ func applyDeltaAVX2(values *int32, add, remove *int16, n int)
 
 //go:noescape
 func transformAVX2(values *int32, out *uint8)
+
+//go:noescape
+func addFeatureAVX2(values *int32, add *int16, n int)
+
+//go:noescape
+func applyDelta2AVX2(values *int32, add, remove1, remove2 *int16, n int)

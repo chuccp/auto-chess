@@ -50,8 +50,12 @@ func (n *Network) rebuildPerspective(acc *Accumulator, pieces []int, perspective
 
 func (n *Network) addFeature(values *[ftHalf]int32, psqt *[psqtBuckets]int32, index int) {
 	base := index * ftHalf
-	for j := 0; j < ftHalf; j++ {
-		values[j] += int32(n.weights[base+j])
+	if useAVX2 {
+		addFeatureAVX2(&values[0], &n.weights[base], ftHalf)
+	} else {
+		for j := 0; j < ftHalf; j++ {
+			values[j] += int32(n.weights[base+j])
+		}
 	}
 	pbase := index * psqtBuckets
 	for j := 0; j < psqtBuckets; j++ {
@@ -220,15 +224,19 @@ func (n *Network) applyDelta(values *[ftHalf]int32, psqt *[psqtBuckets]int32, ad
 		}
 		return
 	}
-	for j := 0; j < ftHalf; j++ {
-		d := int32(0)
-		for _, idx := range add {
-			d += int32(n.weights[idx*ftHalf+j])
+	if useAVX2 && len(add) == 1 && len(remove) == 2 {
+		applyDelta2AVX2(&values[0], &n.weights[add[0]*ftHalf], &n.weights[remove[0]*ftHalf], &n.weights[remove[1]*ftHalf], ftHalf)
+	} else {
+		for j := 0; j < ftHalf; j++ {
+			d := int32(0)
+			for _, idx := range add {
+				d += int32(n.weights[idx*ftHalf+j])
+			}
+			for _, idx := range remove {
+				d -= int32(n.weights[idx*ftHalf+j])
+			}
+			values[j] += d
 		}
-		for _, idx := range remove {
-			d -= int32(n.weights[idx*ftHalf+j])
-		}
-		values[j] += d
 	}
 	for j := 0; j < psqtBuckets; j++ {
 		d := int32(0)

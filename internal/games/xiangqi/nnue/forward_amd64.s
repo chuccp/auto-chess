@@ -120,3 +120,41 @@ transformLoop:
 	JLT perspLoop
 	VZEROUPPER
 	RET
+
+// func addFeatureAVX2(values *int32, add *int16, n int)
+TEXT ·addFeatureAVX2(SB), NOSPLIT, $0-24
+	MOVQ values+0(FP), DI
+	MOVQ add+8(FP), SI
+	MOVQ n+16(FP), CX
+	XORQ AX, AX
+addLoop:
+	VPMOVSXWD (SI)(AX*2), Y0
+	VPADDD (DI)(AX*4), Y0, Y0
+	VMOVDQU Y0, (DI)(AX*4)
+	ADDQ $8, AX
+	CMPQ AX, CX
+	JLT addLoop
+	VZEROUPPER
+	RET
+
+// func applyDelta2AVX2(values *int32, add, remove1, remove2 *int16, n int)
+TEXT ·applyDelta2AVX2(SB), NOSPLIT, $0-40
+	MOVQ values+0(FP), DI
+	MOVQ add+8(FP), SI
+	MOVQ remove1+16(FP), BX
+	MOVQ remove2+24(FP), R8
+	MOVQ n+32(FP), CX
+	XORQ AX, AX
+delta2Loop:
+	VPMOVSXWD (SI)(AX*2), Y0
+	VPMOVSXWD (BX)(AX*2), Y1
+	VPSUBD Y1, Y0, Y0
+	VPMOVSXWD (R8)(AX*2), Y1
+	VPSUBD Y1, Y0, Y0
+	VPADDD (DI)(AX*4), Y0, Y0
+	VMOVDQU Y0, (DI)(AX*4)
+	ADDQ $8, AX
+	CMPQ AX, CX
+	JLT delta2Loop
+	VZEROUPPER
+	RET

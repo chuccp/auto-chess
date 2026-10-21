@@ -262,22 +262,26 @@ func (n *Network) EvaluateAccumulator(acc *Accumulator, turn string) (int, error
 		bucket = layerStacks - 1
 	}
 	var transformed [ftHalf]uint8
-	for p := 0; p < 2; p++ {
-		offset := (ftHalf / 2) * p
-		for j := 0; j < ftHalf/2; j++ {
-			a := int(acc.Values[p][j])
-			if a < 0 {
-				a = 0
-			} else if a > 127 {
-				a = 127
+	if useAVX2 {
+		transformAVX2(&acc.Values[0][0], &transformed[0])
+	} else {
+		for p := 0; p < 2; p++ {
+			offset := (ftHalf / 2) * p
+			for j := 0; j < ftHalf/2; j++ {
+				a := int(acc.Values[p][j])
+				if a < 0 {
+					a = 0
+				} else if a > 127 {
+					a = 127
+				}
+				b := int(acc.Values[p][j+ftHalf/2])
+				if b < 0 {
+					b = 0
+				} else if b > 127 {
+					b = 127
+				}
+				transformed[offset+j] = uint8(a * b / 128)
 			}
-			b := int(acc.Values[p][j+ftHalf/2])
-			if b < 0 {
-				b = 0
-			} else if b > 127 {
-				b = 127
-			}
-			transformed[offset+j] = uint8(a * b / 128)
 		}
 	}
 	psqtEval := int32((acc.PSQT[side][bucket] - acc.PSQT[1-side][bucket]) / 2)

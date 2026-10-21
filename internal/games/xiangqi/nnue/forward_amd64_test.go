@@ -68,3 +68,35 @@ func TestApplyDeltaAVX2(t *testing.T) {
 		}
 	}
 }
+
+func TestTransformAVX2(t *testing.T) {
+	if !useAVX2 {
+		t.Skip("AVX2 unavailable")
+	}
+	rng := rand.New(rand.NewSource(3))
+	var values [2][ftHalf]int32
+	for p := 0; p < 2; p++ {
+		for i := 0; i < ftHalf; i++ {
+			values[p][i] = int32(rng.Intn(2401) - 1200)
+		}
+	}
+	var got [ftHalf]uint8
+	transformAVX2(&values[0][0], &got[0])
+	for p := 0; p < 2; p++ {
+		for j := 0; j < ftHalf/2; j++ {
+			clamp := func(v int32) int {
+				if v < 0 {
+					return 0
+				}
+				if v > 127 {
+					return 127
+				}
+				return int(v)
+			}
+			want := uint8(clamp(values[p][j]) * clamp(values[p][j+ftHalf/2]) / 128)
+			if got[p*(ftHalf/2)+j] != want {
+				t.Fatalf("p=%d j=%d got=%d want=%d", p, j, got[p*(ftHalf/2)+j], want)
+			}
+		}
+	}
+}

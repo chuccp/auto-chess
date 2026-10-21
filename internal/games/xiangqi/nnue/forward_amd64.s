@@ -64,3 +64,59 @@ loop:
 	JLT loop
 	VZEROUPPER
 	RET
+
+DATA ·avxZero<>+0(SB)/8, $0
+DATA ·avxZero<>+8(SB)/8, $0
+DATA ·avxZero<>+16(SB)/8, $0
+DATA ·avxZero<>+24(SB)/8, $0
+GLOBL ·avxZero<>(SB), RODATA, $32
+
+DATA ·avx127<>+0(SB)/8, $0x0000007f0000007f
+DATA ·avx127<>+8(SB)/8, $0x0000007f0000007f
+DATA ·avx127<>+16(SB)/8, $0x0000007f0000007f
+DATA ·avx127<>+24(SB)/8, $0x0000007f0000007f
+GLOBL ·avx127<>(SB), RODATA, $32
+
+DATA ·avxByteMask<>+0(SB)/8, $0x808080800c080400
+DATA ·avxByteMask<>+8(SB)/8, $0x8080808080808080
+GLOBL ·avxByteMask<>(SB), RODATA, $16
+
+// func transformAVX2(values *int32, out *uint8)
+TEXT ·transformAVX2(SB), NOSPLIT, $0-16
+	MOVQ values+0(FP), SI
+	MOVQ out+8(FP), DI
+	VMOVDQU ·avxZero<>(SB), Y2
+	VMOVDQU ·avx127<>(SB), Y3
+	VMOVDQU ·avxByteMask<>(SB), X4
+	XORQ R8, R8
+perspLoop:
+	MOVQ R8, AX
+	SHLQ $12, AX
+	ADDQ SI, AX
+	MOVQ R8, BX
+	SHLQ $9, BX
+	ADDQ DI, BX
+	XORQ R9, R9
+transformLoop:
+	VMOVDQU (AX)(R9*4), Y0
+	VPMAXSD Y2, Y0, Y0
+	VPMINSD Y3, Y0, Y0
+	VMOVDQU 2048(AX)(R9*4), Y1
+	VPMAXSD Y2, Y1, Y1
+	VPMINSD Y3, Y1, Y1
+	VPMULLD Y1, Y0, Y0
+	VPSRLD $7, Y0, Y0
+	VEXTRACTI128 $1, Y0, X1
+	VPSHUFB X4, X0, X0
+	VPSHUFB X4, X1, X1
+	VPSLLDQ $4, X1, X1
+	VPOR X1, X0, X0
+	VMOVQ X0, (BX)(R9*1)
+	ADDQ $8, R9
+	CMPQ R9, $512
+	JLT transformLoop
+	INCQ R8
+	CMPQ R8, $2
+	JLT perspLoop
+	VZEROUPPER
+	RET

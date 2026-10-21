@@ -38,13 +38,17 @@ func main() {
 		cfg.Put("web.server.contextPath", raw)
 	}
 
-	reg := registry.New()
 	renderer, err := webui.New(basePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "加载页面模板失败：%v\n", err)
 		os.Exit(1)
 	}
 	basePath = renderer.BasePath()
+	nnuePath := strings.TrimSpace(cfg.GetString("engine.xiangqi.nnue"))
+	if raw := os.Getenv("XIANGQI_NNUE"); raw != "" {
+		nnuePath = raw
+	}
+	reg := registry.New(nnuePath)
 	app := wf.NewBuilder(cfg).
 		Filter(&api.CORSFilter{}).
 		Filter(&api.RecoveryFilter{}).
@@ -58,7 +62,7 @@ func main() {
 	fmt.Printf("  文档:   %s/docs\n", baseURL)
 	fmt.Printf("  走子:   POST %s/api/v1/move\n", baseURL)
 	fmt.Printf("  流式:   GET/POST %s/api/v1/move/stream\n", baseURL)
-	fmt.Printf("  引擎:   chess=chess-3, xiangqi=godogpaw（纯 Go）\n")
+	fmt.Printf("  引擎:   chess=chess-3, xiangqi=%s\n", xiangqiEngineLabel(nnuePath))
 	fmt.Printf("  棋类:   %d 种（%v）\n", len(reg.List()), reg.IDs())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -67,4 +71,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "服务退出：%v\n", err)
 		os.Exit(1)
 	}
+}
+
+func xiangqiEngineLabel(nnuePath string) string {
+	if strings.TrimSpace(nnuePath) != "" {
+		if _, err := os.Stat(nnuePath); err == nil {
+			return "pikafish-nnue"
+		}
+	}
+	return "godogpaw"
 }

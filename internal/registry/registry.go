@@ -2,6 +2,8 @@
 package registry
 
 import (
+	"fmt"
+	"os"
 	"sort"
 	"strings"
 
@@ -23,15 +25,24 @@ type Registry struct {
 	order []string
 }
 
-// New builds the default registry with all supported games.
-func New() *Registry {
+// New builds the default registry with all supported games. If nnuePath is
+// provided, xiangqi uses the Pikafish NNUE evaluator instead of godogpaw.
+func New(nnuePath ...string) *Registry {
 	r := &Registry{
 		games: make(map[string]game.Game),
 		byID:  make(map[string]game.Meta),
 	}
+	xiangqiGame := game.Game(xiangqi.New().WithNativeEngine())
+	if len(nnuePath) > 0 && strings.TrimSpace(nnuePath[0]) != "" {
+		if withNNUE, err := xiangqi.NewWithNNUE(nnuePath[0]); err == nil {
+			xiangqiGame = withNNUE
+		} else {
+			fmt.Fprintf(os.Stderr, "加载 NNUE 失败，回退 godogpaw：%v\n", err)
+		}
+	}
 	for _, g := range []game.Game{
 		chess.New().WithNativeEngine(),
-		xiangqi.New().WithNativeEngine(),
+		xiangqiGame,
 		gomoku.New(),
 		reversi.New(),
 		connect4.New(),

@@ -37,3 +37,5 @@ auto-chess.exe
 *.log
 logs/
 .playwright/
+
+pikafish.nnue

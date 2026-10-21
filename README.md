@@ -5,7 +5,7 @@
 一个独立的多棋种 AI 走子服务。服务端不创建对局、不保存棋谱、不维护用户，也不返回新棋盘；棋盘和历史始终由调用方持有。
 
 - 7 种棋类：中国象棋、国际象棋、五子棋、黑白棋、四子棋、斗兽棋、中国跳棋
-- 国际象棋 / 中国象棋使用纯 Go 引擎（Chess-3 / godogpaw）
+- 国际象棋使用 Chess-3；中国象棋可选 godogpaw 或纯 Go NNUE（加载 Pikafish 2024 网络）
 - 一套请求结构：FEN 棋种传 `fen`，网格棋种传扁平的 `board` 数组
 - 无状态：`当前局面 → 下一步`
 - 难度 / 思考时间 / 最大深度可调
@@ -256,7 +256,7 @@ GET /api/v1/move/stream?payload=%7B%22game%22%3A%22gomoku%22%2C...%7D
 
 | 字段 | 说明 |
 |---|---|
-| `engine` | 实际使用的引擎：`chess-3`、`godogpaw` 或内置 `builtin` |
+| `engine` | 实际使用的引擎：`chess-3`、`godogpaw`、`pikafish-nnue` 或内置 `builtin` |
 | `move` | 最佳走法。`uci` 用于 FEN 棋种；`index` 用于落子类棋种；`from` / `to` 用于移动类棋种 |
 | `status` | 走完这一步后的状态：`playing`、`check`、`checkmate`、`stalemate`、`win`、`draw` |
 | `gameOver` | 该走法是否结束对局 |
@@ -350,12 +350,28 @@ web:
     read_timeout: 30
   log:
     level: info
+engine:
+  xiangqi:
+    nnue: pikafish.nnue
 ```
 
 环境变量：
 
 - `PORT`：覆盖端口
 - `CONTEXT_PATH`：覆盖 contextPath，例如 `/games` 或 `games`
+- `XIANGQI_NNUE`：覆盖中国象棋 NNUE 文件路径
+
+### Pikafish NNUE（可选）
+
+中国象棋可以加载 Pikafish 2024-03-10 的官方 NNUE 网络：
+
+1. 从 [Pikafish Releases](https://github.com/official-pikafish/Pikafish/releases/tag/Pikafish-2024-03-10) 下载发布包；
+2. 取出其中的 `pikafish.nnue`，如果是 ZIP 包则解压出真正的 `.nnue` 文件；
+3. 放到项目根目录的 `pikafish.nnue`，或改 `engine.xiangqi.nnue` / `XIANGQI_NNUE`。
+
+加载成功后，`/api/v1/move` 返回的 `engine` 为 `pikafish-nnue`；文件不存在或解析失败时自动回退 `godogpaw`，不会阻塞启动。
+
+权重文件不提交到仓库。该实现是纯 Go 的 NNUE 推理，不调用 exe、CGo 或浏览器 WASM。
 
 页面链接、静态资源和前端 API 请求都按当前页面深度生成相对路径，因此修改 `contextPath` 后无需修改模板或 JS。
 
@@ -420,7 +436,8 @@ go test ./...
 - HTTP 层使用 go-web-frame 的 `Builder`、`Rest`、`Filter`、`Config`、`Run`。
 - 页面使用 Go `html/template`：`layout` 统一导航/页脚，各页面模板只写内容；棋种目录和详情由 `registry` 数据直接渲染。
 - 所有引擎实现 `internal/game.Game`：`Decode` / `Encode` / `LegalMoves` / `Apply` / `Search`。
-- 国际象棋接入 [Chess-3](https://github.com/paulsonkoly/chess-3)（纯 Go），中国象棋接入 [godogpaw](https://github.com/hmgle/godogpaw)（纯 Go）。
+- 国际象棋接入 [Chess-3](https://github.com/paulsonkoly/chess-3)（纯 Go），中国象棋接入 [godogpaw](https://github.com/hmgle/godogpaw)（纯 Go）；可选加载 Pikafish 2024 NNUE 网络。
+- NNUE 推理为纯 Go 实现：读取 `.nnue`、解压 LEB128、Feature Transformer、8 个 LayerStack，不依赖 CGo、WASM 或原生引擎进程。
 - 接口层只做参数归一化、错误映射和 JSON 序列化，不保存任何对局状态。
 - 搜索均为纯 Go；交叉编译到 Windows / Linux / macOS 时不需要额外安装引擎。
 
@@ -428,10 +445,12 @@ go test ./...
 
 - 不保存棋谱，因此无法检测三次重复局面；需要的话请由调用方根据历史判断终局。
 - 棋钟、50 回合、60 回合等规则由 FEN 中的半回合计数提供，服务端只读取当前值。
-- 国际象棋 / 中国象棋使用真实 Go 引擎（Chess-3 / godogpaw）；五子棋、黑白棋、四子棋、斗兽棋、中国跳棋使用项目内置的 Alpha-Beta / 束搜索实现。
+- 国际象棋使用 Chess-3（纯 Go）；中国象棋默认 godogpaw，也可加载 Pikafish 2024 NNUE 网络；NNUE 搜索目前是直接评估，未实现 Pikafish 的增量累加器，棋力仍低于 Pikafish 原版。
+- Pikafish NNUE 网络文件不随仓库分发，需要自行下载；缺少文件时自动回退 godogpaw。
 - 公开接口没有鉴权与限流，部署到公网时请在前面加网关或反向代理。
 
 ## 第三方引擎许可
 
 - [Chess-3](https://github.com/paulsonkoly/chess-3)：MIT License。
 - [godogpaw](https://github.com/hmgle/godogpaw)：MIT License，源码位于 `internal/engines/godogpaw/`，许可证随源码保留。
+- [Pikafish](https://github.com/official-pikafish/Pikafish)：GPL-3.0；NNUE 权重遵循 Pikafish 项目的 NNUE License。仓库不包含官方权重文件。

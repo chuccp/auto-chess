@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/chuccp/auto-chess/internal/game"
+	"github.com/chuccp/auto-chess/internal/games/xiangqi/nnue"
 )
 
 const (
@@ -50,14 +51,26 @@ type move struct{ From, To int }
 // Game implements game.Game.
 type Game struct {
 	native bool
+	nnue   *nnue.Network
 }
 
 // New returns a xiangqi engine backed by the built-in search.
 func New() *Game { return &Game{} }
 
+// NewWithNNUE loads a Pikafish 2024 .nnue file and uses it for leaf evaluation.
+func NewWithNNUE(path string) (*Game, error) {
+	net, err := nnue.Load(path)
+	if err != nil {
+		return nil, err
+	}
+	g := &Game{nnue: net}
+	return g, nil
+}
+
 // WithNativeEngine switches this game to the pure-Go godogpaw engine.
 func (g *Game) WithNativeEngine() *Game {
 	g.native = true
+	g.nnue = nil
 	return g
 }
 
@@ -83,7 +96,7 @@ func (g *Game) Meta() game.Meta {
 		PositionFormat: "标准象棋 FEN，例如 rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1",
 		MoveFormat:     "UCCI，例如 h2e2、b0c2",
 		Difficulties:   game.DifficultyOrder,
-		Features:       []string{"完整中国象棋规则", "蹩马腿 / 塞象眼", "炮架吃子", "将帅照面检测", "将杀与困毙", "godogpaw 引擎"},
+		Features:       []string{"完整中国象棋规则", "蹩马腿 / 塞象眼", "炮架吃子", "将帅照面检测", "将杀与困毙", "godogpaw / NNUE 引擎"},
 		Rules: []string{
 			"红方先行，目标是将死对方将帅。",
 			"帅/将只能在九宫内横竖走一格；士/仕在九宫内斜走一格。",
@@ -209,6 +222,9 @@ func (g *Game) searchBuiltin(ctx context.Context, pos game.Position, opts game.S
 	st := pos.(*State)
 	start := time.Now()
 	result := game.SearchResult{Game: "xiangqi", Difficulty: game.NormalizeDifficulty(opts.Difficulty)}
+	if g.nnue != nil {
+		result.Engine = "pikafish-nnue"
+	}
 	rootMoves := legalMoves(st)
 	if len(rootMoves) == 0 {
 		result.GameOver = true
@@ -248,7 +264,7 @@ func (g *Game) searchBuiltin(ctx context.Context, pos game.Position, opts game.S
 		complete := true
 		for i, m := range rootMoves {
 			child := makeMove(st, m)
-			score := -negamax(child, d-1, -beta, -alpha, 1, &nodes, deadline, ctx, &timedOut)
+			score := -g.negamax(child, d-1, -beta, -alpha, 1, &nodes, deadline, ctx, &timedOut)
 			if timedOut {
 				complete = false
 				break
@@ -301,7 +317,7 @@ func (g *Game) searchBuiltin(ctx context.Context, pos game.Position, opts game.S
 	return result, nil
 }
 
-func negamax(st *State, depth, alpha, beta, ply int, nodes *int64, deadline time.Time, ctx context.Context, timedOut *bool) int {
+func (g *Game) negamax(st *State, depth, alpha, beta, ply int, nodes *int64, deadline time.Time, ctx context.Context, timedOut *bool) int {
 	*nodes++
 	if *nodes&1023 == 0 && (time.Now().After(deadline) || ctx.Err() != nil) {
 		*timedOut = true
@@ -315,13 +331,13 @@ func negamax(st *State, depth, alpha, beta, ply int, nodes *int64, deadline time
 		return -mateScore + ply
 	}
 	if depth <= 0 {
-		return evaluate(st)
+		return g.quiesce(st, alpha, beta, ply, nodes, deadline, ctx, timedOut)
 	}
 	orderMoves(st, moves)
 	best := -mateScore * 2
 	for _, m := range moves {
 		child := makeMove(st, m)
-		score := -negamax(child, depth-1, -beta, -alpha, ply+1, nodes, deadline, ctx, timedOut)
+		score := -g.negamax(child, depth-1, -beta, -alpha, ply+1, nodes, deadline, ctx, timedOut)
 		if score > best {
 			best = score
 		}
@@ -336,6 +352,80 @@ func negamax(st *State, depth, alpha, beta, ply int, nodes *int64, deadline time
 		}
 	}
 	return best
+}
+
+func (g *Game) quiesce(st *State, alpha, beta, ply int, nodes *int64, deadline time.Time, ctx context.Context, timedOut *bool) int {
+	*nodes++
+	if *nodes&1023 == 0 && (time.Now().After(deadline) || ctx.Err() != nil) {
+		*timedOut = true
+		return 0
+	}
+	if st.Halfmove >= 120 || ply >= 24 {
+		return g.evaluateLeaf(st)
+	}
+	moves := legalMoves(st)
+	if len(moves) == 0 {
+		return -mateScore + ply
+	}
+	stand := g.evaluateLeaf(st)
+	if !inCheck(st, st.Turn) {
+		if stand >= beta {
+			return stand
+		}
+		if stand > alpha {
+			alpha = stand
+		}
+		var captures []move
+		for _, m := range moves {
+			if st.Board[m.To] != 0 {
+				captures = append(captures, m)
+			}
+		}
+		if len(captures) == 0 {
+			return alpha
+		}
+		moves = captures
+	}
+	orderMoves(st, moves)
+	best := -mateScore * 2
+	for _, m := range moves {
+		child := makeMove(st, m)
+		score := -g.quiesce(child, -beta, -alpha, ply+1, nodes, deadline, ctx, timedOut)
+		if *timedOut {
+			break
+		}
+		if score > best {
+			best = score
+		}
+		if score > alpha {
+			alpha = score
+		}
+		if alpha >= beta {
+			break
+		}
+	}
+	if best == -mateScore*2 {
+		return alpha
+	}
+	return best
+}
+
+func (g *Game) evaluateLeaf(st *State) int {
+	if g.nnue == nil {
+		return evaluate(st)
+	}
+	board := make([]string, Size)
+	for i, p := range st.Board {
+		if p == 0 {
+			continue
+		}
+		board[i] = colorLetter(colorOf(p)) + strings.ToUpper(pieceLetter(absPiece(p)))
+	}
+	score, err := g.nnue.Evaluate(board, colorString(st.Turn))
+	if err != nil {
+		return evaluate(st)
+	}
+	return score
 }
 
 func evaluate(st *State) int {

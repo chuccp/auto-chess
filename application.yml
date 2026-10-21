@@ -7,3 +7,7 @@ web:
     read_timeout: 30
   log:
     level: info
+engine:
+  xiangqi:
+    # 官方 Pikafish 2024-03-10 NNUE；不存在时自动回退 godogpaw
+    nnue: pikafish.nnue

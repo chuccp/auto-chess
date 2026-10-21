@@ -444,6 +444,12 @@ func (g *Game) negamax(st *State, depth, alpha, beta, ply int, nodes *int64, dea
 		moves = moveToFront(moves, entry.best)
 	}
 	orderMoves(st, moves, &tables.history, tables.killers[ply][0], tables.killers[ply][1])
+	futility := false
+	futilityScore := 0
+	if depth == 1 && !inCheck(st, st.Turn) {
+		futilityScore = g.evaluateLeaf(st, acc, tables)
+		futility = futilityScore+150 <= alpha
+	}
 	if depth >= 3 && !inCheck(st, st.Turn) && hasNonPawnMaterial(st, st.Turn) {
 		nullState := makeNull(st)
 		score := -g.negamax(nullState, depth-3, -beta, -beta+1, ply+1, nodes, deadline, ctx, timedOut, acc, tables)
@@ -457,6 +463,9 @@ func (g *Game) negamax(st *State, depth, alpha, beta, ply int, nodes *int64, dea
 	best := -mateScore * 2
 	bestMove := move{}
 	for i, m := range moves {
+		if futility && st.Board[m.To] == 0 {
+			continue
+		}
 		child := makeMove(st, m)
 		childAcc := nextAccumulator(g.nnue, acc, st.Board, m)
 		reduction := 0
@@ -496,6 +505,9 @@ func (g *Game) negamax(st *State, depth, alpha, beta, ply int, nodes *int64, dea
 		if *timedOut {
 			break
 		}
+	}
+	if futility && best < futilityScore {
+		best = futilityScore
 	}
 	if !*timedOut {
 		tables.store(key, depth, best, alpha0, beta, bestMove)

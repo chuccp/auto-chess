@@ -43,9 +43,10 @@ type layer struct {
 }
 
 type stack struct {
-	fc0 layer
-	fc1 layer
-	fc2 layer
+	fc0  layer
+	fc1  layer
+	fc2  layer
+	fc0T []int8
 }
 
 // Load reads a Pikafish 2024 .nnue file.
@@ -90,6 +91,7 @@ func Load(path string) (*Network, error) {
 		n.layers[i].fc0 = p.layer(fc0Outputs+1, ftHalf)
 		n.layers[i].fc1 = p.layer(fc1Outputs, fc1Inputs)
 		n.layers[i].fc2 = p.layer(1, fc1Outputs)
+		n.layers[i].fc0T = transposeFC0(n.layers[i].fc0)
 		if p.err != nil {
 			return nil, fmt.Errorf("nnue: layer %d: %w", i, p.err)
 		}

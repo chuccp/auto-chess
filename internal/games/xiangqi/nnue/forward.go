@@ -19,9 +19,34 @@ func (l layer) forwardInto(input []uint8, out []int32) {
 	}
 }
 
+func transposeFC0(l layer) []int8 {
+	out := make([]int8, l.in*l.out)
+	for o := 0; o < l.out; o++ {
+		row := l.weights[o*l.in : (o+1)*l.in]
+		for i, w := range row {
+			out[i*l.out+o] = w
+		}
+	}
+	return out
+}
+
+func (s stack) forwardFC0(input [ftHalf]uint8, out []int32) {
+	copy(out[:s.fc0.out], s.fc0.bias)
+	for i, v := range input {
+		if v == 0 {
+			continue
+		}
+		iv := int32(v)
+		row := s.fc0T[i*s.fc0.out : (i+1)*s.fc0.out]
+		for o, w := range row {
+			out[o] += int32(w) * iv
+		}
+	}
+}
+
 func (s stack) propagate(transformed [ftHalf]uint8) int32 {
 	var fc0 [fc0Outputs + 1]int32
-	s.fc0.forwardInto(transformed[:], fc0[:])
+	s.forwardFC0(transformed, fc0[:])
 
 	// 2024 network: sqr-clipped first 15 outputs followed by clipped ReLU of
 	// the same 15 outputs. fc0[15] is the skip connection.

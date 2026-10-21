@@ -95,3 +95,22 @@ func TestTrapWeakens(t *testing.T) {
 }
 
 func intPtr(v int) *int { return &v }
+
+func TestWaterRatCaptureRule(t *testing.T) {
+	waterSq := 3*Cols + 1 // row 3, col 1: water
+	landSq := 2*Cols + 1  // row 2, col 1: land, adjacent
+	board := [Size]int8{}
+	board[waterSq] = piece(Red, Rat)
+	board[landSq] = piece(Black, Rat)
+	if canCapture(board, waterSq, piece(Red, Rat), landSq) {
+		t.Fatal("a rat in the water should not capture a rat on land")
+	}
+	if canCapture(board, landSq, piece(Black, Rat), waterSq) {
+		t.Fatal("a rat on land should not capture a rat in the water")
+	}
+	// Two rats in the water may still capture each other.
+	board[3*Cols+2] = piece(Black, Rat)
+	if !canCapture(board, waterSq, piece(Red, Rat), 3*Cols+2) {
+		t.Fatal("rats in the water should capture each other")
+	}
+}

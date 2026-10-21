@@ -192,21 +192,6 @@ func legalMoves(st *State) []move {
 	return out
 }
 
-func legalCaptures(st *State) []move {
-	pseudo := pseudoMoves(st)
-	out := make([]move, 0, len(pseudo)/2)
-	for _, m := range pseudo {
-		if st.Board[m.To] == 0 {
-			continue
-		}
-		next := makeMove(st, m)
-		if !inCheck(next, st.Turn) {
-			out = append(out, m)
-		}
-	}
-	return out
-}
-
 func makeMove(st *State, m move) *State {
 	next := *st
 	p := next.Board[m.From]
@@ -231,30 +216,6 @@ func makeMove(st *State, m move) *State {
 	}
 	next.Turn = -st.Turn
 	return &next
-}
-
-func makeNull(st *State) *State {
-	next := *st
-	if next.hash == 0 {
-		next.hash = calcHash(st.Board, st.Turn)
-	}
-	next.hash ^= zobristTurn
-	next.Turn = -st.Turn
-	next.Halfmove++
-	return &next
-}
-
-func hasNonPawnMaterial(st *State, side int8) bool {
-	for _, p := range st.Board {
-		if p == 0 || colorOf(p) != side {
-			continue
-		}
-		switch absPiece(p) {
-		case Rook, Cannon, Knight:
-			return true
-		}
-	}
-	return false
 }
 
 func inCheck(st *State, side int8) bool {
@@ -375,10 +336,6 @@ func isAttacked(board [Size]int8, sq int, by int8) bool {
 	return false
 }
 
-func orderMoves(st *State, moves []move, history *[2][Size][Size]int32, killer0, killer1 move) {
-	orderMovesBoard(st.Board, st.Turn, moves, history, killer0, killer1)
-}
-
 func orderMovesBoard(board [Size]int8, turn int8, moves []move, history *[2][Size][Size]int32, killer0, killer1 move) {
 	for i := 1; i < len(moves); i++ {
 		m := moves[i]
@@ -389,10 +346,6 @@ func orderMovesBoard(board [Size]int8, turn int8, moves []move, history *[2][Siz
 		}
 		moves[j+1] = m
 	}
-}
-
-func moveScore(st *State, m move, history *[2][Size][Size]int32, killer0, killer1 move) int {
-	return moveScoreBoard(st.Board, st.Turn, m, history, killer0, killer1)
 }
 
 func moveScoreBoard(board [Size]int8, turn int8, m move, history *[2][Size][Size]int32, killer0, killer1 move) int {

@@ -87,6 +87,42 @@ func TestEnPassant(t *testing.T) {
 	}
 }
 
+func TestEnPassantNeedsCapturablePawn(t *testing.T) {
+	// No black pawn on e5 and no white pawn beside it: the en-passant field is
+	// inconsistent with the board, so it must not create a phantom capture.
+	st, err := parseFEN("4k3/8/8/3P4/8/8/8/4K3 w - e6 0 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.EP != -1 {
+		t.Fatalf("impossible en-passant square kept: %d", st.EP)
+	}
+	for _, m := range legalMoves(st) {
+		if m.From == 35 && m.To == 44 {
+			t.Fatalf("phantom en-passant capture d5e6 generated")
+		}
+	}
+}
+
+func TestEnPassantKeptWhenLegal(t *testing.T) {
+	st, err := parseFEN("4k3/8/8/3Pp3/8/8/8/4K3 w - e6 0 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.EP != 44 {
+		t.Fatalf("valid en-passant square dropped: %d", st.EP)
+	}
+	found := false
+	for _, m := range legalMoves(st) {
+		if m.From == 35 && m.To == 44 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("d5e6 en-passant capture missing")
+	}
+}
+
 func TestPromotion(t *testing.T) {
 	st, err := parseFEN("8/P7/8/8/8/8/8/k6K w - - 0 1")
 	if err != nil {

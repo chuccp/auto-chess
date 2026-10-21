@@ -8,10 +8,9 @@ import (
 	"github.com/chuccp/auto-chess/internal/game"
 )
 
-// godogpaw uses package-level PV/search tables, so searches are serialized.
-var nativeSem = make(chan struct{}, 1)
-
-// searchNative runs the pure-Go godogpaw engine.
+// searchNative runs the pure-Go godogpaw engine. Search state lives on the
+// position (PV table, transposition table, stop flag), so concurrent searches
+// do not need to be serialized.
 func (g *Game) searchNative(ctx context.Context, pos game.Position, opts game.SearchOptions) (game.SearchResult, error) {
 	st := pos.(*State)
 	start := time.Now()
@@ -23,13 +22,6 @@ func (g *Game) searchNative(ctx context.Context, pos game.Position, opts game.Se
 		limit = time.Second
 	}
 	depth := nativeDepth(opts)
-
-	select {
-	case nativeSem <- struct{}{}:
-		defer func() { <-nativeSem }()
-	case <-ctx.Done():
-		return game.SearchResult{}, game.NewError(game.CodeTimeout, "等待 godogpaw 引擎超时")
-	}
 
 	enginePos := new(godogpaw.PositionNG)
 	enginePos.Set(st.fen())
@@ -59,7 +51,7 @@ func (g *Game) searchNative(ctx context.Context, pos game.Position, opts game.Se
 		defer close(stopDone)
 		select {
 		case <-ctx.Done():
-			godogpaw.StopSearch()
+			enginePos.StopSearch()
 		case <-stop:
 		}
 	}()
@@ -90,7 +82,9 @@ func (g *Game) searchNative(ctx context.Context, pos game.Position, opts game.Se
 	}
 	if opts.Forbids(g.moveView(m)) {
 		// godogpaw cannot exclude root moves; the bitboard search honours the
-		// caller's ban list.
+		// caller's ban list. Only the remaining budget is spent so the retry
+		// cannot double the request latency.
+		opts.TimeLimit = game.RemainingBudget(limit, time.Since(start))
 		return g.searchPosition(ctx, pos, opts, g.nnue != nil)
 	}
 

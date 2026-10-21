@@ -146,7 +146,7 @@ POST /api/v1/games/xiangqi/move
 }
 ```
 
-`move` 可以只传 `uci`，也可以传 `index`，或 `from` / `to`（扁平索引）。
+`move` 可以只传 `uci`，也可以传 `index`，或 `from` / `to`（扁平索引）。`from` / `to` / `index` 既可以是整数，也可以直接使用 `/api/v1/move` 响应里的坐标对象（如 `{"index": 22, "row": 2, "col": 4}`），因此可以把返回的 `move` 原样传回。
 
 ### `POST /api/v1/legal-moves`
 
@@ -300,7 +300,8 @@ GET /api/v1/move/stream?payload=%7B%22game%22%3A%22gomoku%22%2C...%7D
 - 可以同时传多条（多步）；命中的着法引擎一律不走，由引擎在剩余合法着法中自己选最优；
 - `legal-moves` 的响应会给命中的着法打上 `"forbidden": true`，列表本身不过滤，是否拦截由客户端自己判断；
 - 覆盖全部合法着法时返回 `400`、`BAD_REQUEST`；条目为空（不写任何字段）同样返回 `400`；
-- 只限制引擎本次选择的这一步，不限制搜索树内部的假想走法。
+- 只限制引擎本次选择的这一步，不限制搜索树内部的假想走法；
+- `from` / `to` / `index` 既可以是整数，也可以直接使用 `move` / `legalMoves` 响应里的坐标对象。
 
 ### 响应字段
 
@@ -452,6 +453,10 @@ Get-FileHash .\pikafish.nnue -Algorithm SHA256
 
 ```bash
 go test ./...
+
+# 竞态检测。chess-3 的置换表用 uintptr 做 32 字节对齐，Go 1.27 的 checkptr
+# 会在 -race 下中止进程；关闭 checkptr 不影响真正的数据竞争检测。
+go test -race -gcflags=all=-d=checkptr=0 ./...
 ```
 
 覆盖内容：
@@ -470,6 +475,8 @@ go test ./...
 - 每个棋种的接口文档：字段表、请求/响应、apply-move、legal-moves、SSE、注意事项
 - SSE 事件序列（start / depth / result / done）、GET EventSource 形式、各棋种 progress 回调
 - 原生引擎搜索：Chess-3（国际象棋）与 godogpaw（中国象棋）返回合法走法、引擎名和搜索统计
+- godogpaw 并发搜索（每个局面独立的 PV 表 / 置换表 / 停止标志）
+- 非法吃过路兵 FEN、置换表 mate 分数、`move` 坐标对象回传
 
 ---
 

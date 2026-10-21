@@ -8,7 +8,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/chuccp/auto-chess/internal/game"
 	"github.com/chuccp/auto-chess/internal/games/xiangqi/nnue"
@@ -186,7 +185,8 @@ func (g *Game) Encode(pos game.Position, includeLegalMoves bool) game.PositionVi
 		}
 		board[i] = colorLetter(colorOf(p)) + letter
 	}
-	status := g.status(st)
+	legal := legalMoves(st)
+	status := g.statusFrom(st, legal)
 	view := game.PositionView{
 		FEN:        st.fen(),
 		Board:      board,
@@ -199,7 +199,7 @@ func (g *Game) Encode(pos game.Position, includeLegalMoves bool) game.PositionVi
 		view.LastMove = &m
 	}
 	if includeLegalMoves {
-		view.LegalMoves = g.LegalMoves(st)
+		view.LegalMoves = g.moveViews(legal)
 		view.LegalMoveCount = len(view.LegalMoves)
 	}
 	return view
@@ -207,8 +207,10 @@ func (g *Game) Encode(pos game.Position, includeLegalMoves bool) game.PositionVi
 
 // LegalMoves implements game.Game.
 func (g *Game) LegalMoves(pos game.Position) []game.Move {
-	st := pos.(*State)
-	ms := legalMoves(st)
+	return g.moveViews(legalMoves(pos.(*State)))
+}
+
+func (g *Game) moveViews(ms []move) []game.Move {
 	out := make([]game.Move, 0, len(ms))
 	for _, m := range ms {
 		out = append(out, g.moveView(m))
@@ -285,366 +287,6 @@ func (g *Game) Search(ctx context.Context, pos game.Position, opts game.SearchOp
 	}
 }
 
-func (g *Game) searchBuiltin(ctx context.Context, pos game.Position, opts game.SearchOptions) (game.SearchResult, error) {
-	st := pos.(*State)
-	start := time.Now()
-	result := game.SearchResult{Game: "xiangqi", Difficulty: game.NormalizeDifficulty(opts.Difficulty)}
-	if g.nnue != nil {
-		result.Engine = "pikafish-nnue"
-	}
-	rootMoves := legalMoves(st)
-	if len(rootMoves) == 0 {
-		result.GameOver = true
-		result.Status = g.status(st)
-		return result, nil
-	}
-	depth := game.DepthFor(opts.Difficulty, opts.MaxDepth, 7)
-	if opts.MaxDepth == 0 {
-		switch game.NormalizeDifficulty(opts.Difficulty) {
-		case "easy":
-			depth = 2
-		case "normal":
-			depth = 4
-		case "hard":
-			depth = 5
-		case "master":
-			depth = 6
-		}
-	}
-	limit := game.TimeFor(opts.Difficulty, opts.TimeLimit)
-	deadline := start.Add(limit)
-	nodes := int64(0)
-	timedOut := false
-	var rootAcc *nnue.Accumulator
-	if g.nnue != nil {
-		rootAcc, _ = g.nnue.NewAccumulator(nnuePieces(st.Board))
-	}
-	evalCache := make(map[uint64]int)
-	tables := &searchTables{eval: evalCache, tt: make(map[uint64]ttEntry)}
-	orderMoves(st, rootMoves, &tables.history, tables.killers[0][0], tables.killers[0][1])
-	best := rootMoves[0]
-	bestScore := 0
-	reached := 0
-	for d := 1; d <= depth; d++ {
-		if time.Now().After(deadline) || ctx.Err() != nil {
-			timedOut = true
-			break
-		}
-		alpha, beta := -mateScore*2, mateScore*2
-		localBest := rootMoves[0]
-		localScore := 0
-		complete := true
-		if g.workers > 1 && d >= 3 && len(rootMoves) > 1 {
-			var pn int64
-			localBest, localScore, pn, complete = g.searchRootSplit(rootMoves, st, rootAcc, d, deadline, ctx)
-			nodes += pn
-			if !complete {
-				timedOut = true
-				break
-			}
-		} else {
-			for i, m := range rootMoves {
-				child := makeMove(st, m)
-				childAcc := nextAccumulator(g.nnue, rootAcc, st.Board, m)
-				score := -g.negamax(child, d-1, -beta, -alpha, 1, &nodes, deadline, ctx, &timedOut, childAcc, tables)
-				if timedOut {
-					complete = false
-					break
-				}
-				if i == 0 || score > localScore {
-					localBest = m
-					localScore = score
-				}
-				if score > alpha {
-					alpha = score
-				}
-			}
-		}
-		if !complete {
-			break
-		}
-		best = localBest
-		bestScore = localScore
-		reached = d
-		bestView := g.moveView(best)
-		opts.Report(game.SearchProgress{
-			Depth:  d,
-			Score:  bestScore,
-			Nodes:  nodes,
-			TimeMs: time.Since(start).Milliseconds(),
-			Best:   &bestView,
-			PV:     []game.Move{bestView},
-		})
-		rootMoves = moveToFront(rootMoves, best)
-		if abs(bestScore) >= mateScore-1000 {
-			break
-		}
-	}
-	next := makeMove(st, best)
-	next.LastFrom, next.LastTo = best.From, best.To
-	mv := g.moveView(best)
-	mv.Check = inCheck(next, next.Turn)
-	nv := g.Encode(next, false)
-	result.Move = &mv
-	result.Status = nv.Status
-	result.GameOver = nv.Status.Finished()
-	result.Position = &nv
-	result.Evaluation = game.Evaluation{Score: bestScore, Unit: "centipawn", Perspective: colorString(st.Turn)}
-	if abs(bestScore) >= mateScore-1000 {
-		result.Evaluation.MateIn = (mateScore - abs(bestScore) + 1) / 2
-		if bestScore < 0 {
-			result.Evaluation.MateIn = -result.Evaluation.MateIn
-		}
-	}
-	result.Search = game.SearchInfo{Depth: reached, Nodes: nodes, TimeMs: time.Since(start).Milliseconds(), TimedOut: timedOut, PV: []game.Move{mv}}
-	return result, nil
-}
-
-func (g *Game) searchRootSplit(rootMoves []move, st *State, rootAcc *nnue.Accumulator, depth int, deadline time.Time, ctx context.Context) (move, int, int64, bool) {
-	first := rootMoves[0]
-	firstChild := makeMove(st, first)
-	firstAcc := nextAccumulator(g.nnue, rootAcc, st.Board, first)
-	firstTables := &searchTables{eval: make(map[uint64]int), tt: make(map[uint64]ttEntry)}
-	var nodes int64
-	var timed bool
-	bestScore := -g.negamax(firstChild, depth-1, -mateScore*2, mateScore*2, 1, &nodes, deadline, ctx, &timed, firstAcc, firstTables)
-	if timed || time.Now().After(deadline) || ctx.Err() != nil {
-		return first, bestScore, nodes, false
-	}
-	best := first
-	alpha := bestScore
-
-	type result struct {
-		move  move
-		score int
-		nodes int64
-		done  bool
-	}
-	results := make([]result, len(rootMoves))
-	results[0] = result{move: first, score: bestScore, nodes: nodes, done: true}
-	jobs := make(chan int)
-	workers := g.workers
-	if workers > len(rootMoves)-1 {
-		workers = len(rootMoves) - 1
-	}
-	if workers < 1 {
-		workers = 1
-	}
-	var wg sync.WaitGroup
-	for w := 0; w < workers; w++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			tables := &searchTables{eval: make(map[uint64]int), tt: make(map[uint64]ttEntry)}
-			for idx := range jobs {
-				r := result{move: rootMoves[idx], done: true}
-				child := makeMove(st, rootMoves[idx])
-				childAcc := nextAccumulator(g.nnue, rootAcc, st.Board, rootMoves[idx])
-				var localTimed bool
-				if time.Now().After(deadline) || ctx.Err() != nil {
-					r.done = false
-				} else {
-					r.score = -g.negamax(child, depth-1, -mateScore*2, -alpha, 1, &r.nodes, deadline, ctx, &localTimed, childAcc, tables)
-					if localTimed {
-						r.done = false
-					}
-				}
-				results[idx] = r
-			}
-		}()
-	}
-	for i := 1; i < len(rootMoves); i++ {
-		jobs <- i
-	}
-	close(jobs)
-	wg.Wait()
-
-	complete := true
-	for i := 1; i < len(results); i++ {
-		r := results[i]
-		nodes += r.nodes
-		if !r.done {
-			complete = false
-			continue
-		}
-		if r.score > bestScore {
-			best = r.move
-			bestScore = r.score
-		}
-	}
-	if !complete {
-		return best, bestScore, nodes, false
-	}
-	return best, bestScore, nodes, true
-}
-
-func (g *Game) negamax(st *State, depth, alpha, beta, ply int, nodes *int64, deadline time.Time, ctx context.Context, timedOut *bool, acc *nnue.Accumulator, tables *searchTables) int {
-	*nodes++
-	key := stateKey(st)
-	alpha0 := alpha
-	if score, ok := tables.probe(key, depth, alpha, beta); ok {
-		return score
-	}
-	if *nodes&1023 == 0 && (time.Now().After(deadline) || ctx.Err() != nil) {
-		*timedOut = true
-		return 0
-	}
-	if st.Halfmove >= 120 {
-		return 0
-	}
-	moves := legalMoves(st)
-	if len(moves) == 0 {
-		return -mateScore + ply
-	}
-	if depth <= 0 {
-		return g.quiesce(st, alpha, beta, ply, nodes, deadline, ctx, timedOut, acc, tables)
-	}
-	if entry, ok := tables.tt[key]; ok && (entry.best != move{}) {
-		moves = moveToFront(moves, entry.best)
-	}
-	orderMoves(st, moves, &tables.history, tables.killers[ply][0], tables.killers[ply][1])
-	futility := false
-	futilityScore := 0
-	if depth == 1 && !inCheck(st, st.Turn) {
-		futilityScore = g.evaluateLeaf(st, acc, tables)
-		futility = futilityScore+150 <= alpha
-	}
-	if depth >= 3 && !inCheck(st, st.Turn) && hasNonPawnMaterial(st, st.Turn) {
-		nullState := makeNull(st)
-		score := -g.negamax(nullState, depth-3, -beta, -beta+1, ply+1, nodes, deadline, ctx, timedOut, acc, tables)
-		if *timedOut {
-			return 0
-		}
-		if score >= beta {
-			return beta
-		}
-	}
-	best := -mateScore * 2
-	bestMove := move{}
-	for i, m := range moves {
-		if futility && st.Board[m.To] == 0 {
-			continue
-		}
-		child := makeMove(st, m)
-		childAcc := nextAccumulator(g.nnue, acc, st.Board, m)
-		reduction := 0
-		if depth >= 3 && i >= 3 && st.Board[m.To] == 0 {
-			reduction = 1
-			if depth >= 5 && i >= 6 {
-				reduction = 2
-			}
-		}
-		score := -g.negamax(child, depth-1-reduction, -beta, -alpha, ply+1, nodes, deadline, ctx, timedOut, childAcc, tables)
-		if reduction > 0 && score > alpha && !*timedOut {
-			score = -g.negamax(child, depth-1, -beta, -alpha, ply+1, nodes, deadline, ctx, timedOut, childAcc, tables)
-		}
-		if score > best {
-			best = score
-			bestMove = m
-		}
-		if score > alpha {
-			alpha = score
-		}
-		if alpha >= beta {
-			if st.Board[m.To] == 0 {
-				side := 0
-				if st.Turn == Black {
-					side = 1
-				}
-				tables.history[side][m.From][m.To] += int32(depth * depth)
-				if ply < len(tables.killers) {
-					if tables.killers[ply][0] != m {
-						tables.killers[ply][1] = tables.killers[ply][0]
-						tables.killers[ply][0] = m
-					}
-				}
-			}
-			break
-		}
-		if *timedOut {
-			break
-		}
-	}
-	if futility && best < futilityScore {
-		best = futilityScore
-	}
-	if !*timedOut {
-		tables.store(key, depth, best, alpha0, beta, bestMove)
-	}
-	return best
-}
-
-func (g *Game) quiesce(st *State, alpha, beta, ply int, nodes *int64, deadline time.Time, ctx context.Context, timedOut *bool, acc *nnue.Accumulator, tables *searchTables) int {
-	*nodes++
-	if *nodes&1023 == 0 && (time.Now().After(deadline) || ctx.Err() != nil) {
-		*timedOut = true
-		return 0
-	}
-	if st.Halfmove >= 120 || ply >= 24 {
-		return g.evaluateLeaf(st, acc, tables)
-	}
-	check := inCheck(st, st.Turn)
-	stand := 0
-	var moves []move
-	if check {
-		moves = legalMoves(st)
-		if len(moves) == 0 {
-			return -mateScore + ply
-		}
-	} else {
-		stand = g.evaluateLeaf(st, acc, tables)
-		if stand >= beta {
-			return stand
-		}
-		if stand > alpha {
-			alpha = stand
-		}
-		moves = legalCaptures(st)
-		if len(moves) == 0 {
-			return alpha
-		}
-	}
-	orderMoves(st, moves, &tables.history, tables.killers[ply][0], tables.killers[ply][1])
-	best := -mateScore * 2
-	for _, m := range moves {
-		if !check && st.Board[m.To] != 0 && stand+pieceValue[absPiece(st.Board[m.To])]+200 <= alpha {
-			continue
-		}
-		child := makeMove(st, m)
-		childAcc := nextAccumulator(g.nnue, acc, st.Board, m)
-		score := -g.quiesce(child, -beta, -alpha, ply+1, nodes, deadline, ctx, timedOut, childAcc, tables)
-		if *timedOut {
-			break
-		}
-		if score > best {
-			best = score
-		}
-		if score > alpha {
-			alpha = score
-		}
-		if alpha >= beta {
-			if st.Board[m.To] == 0 {
-				side := 0
-				if st.Turn == Black {
-					side = 1
-				}
-				tables.history[side][m.From][m.To]++
-				if ply < len(tables.killers) {
-					if tables.killers[ply][0] != m {
-						tables.killers[ply][1] = tables.killers[ply][0]
-						tables.killers[ply][0] = m
-					}
-				}
-			}
-			break
-		}
-	}
-	if best == -mateScore*2 {
-		return alpha
-	}
-	return best
-}
-
 type ttEntry struct {
 	depth int
 	score int
@@ -652,14 +294,64 @@ type ttEntry struct {
 	best  move
 }
 
+// maxPly bounds the per-ply tables (killers and move scratch buffers). The
+// search never gets close to it: the API caps maxDepth at 10 and quiescence
+// stops at ply 24.
+const maxPly = 64
+
 type searchTables struct {
 	eval    map[uint64]int
 	tt      map[uint64]ttEntry
 	history [2][Size][Size]int32
-	killers [64][2]move
+	killers [maxPly][2]move
+	// moves holds one reusable move buffer per ply. Move generation is the
+	// hottest allocation in the search; reusing the buffers removes tens of
+	// megabytes of garbage per request.
+	moves [maxPly][]move
 }
 
-func (t *searchTables) probe(key uint64, depth, alpha, beta int) (int, bool) {
+// scratch returns an empty move buffer for ply, reusing a previous allocation
+// when possible. The caller stores the (possibly grown) result back with
+// keepScratch.
+func (t *searchTables) scratch(ply int) []move {
+	if ply < 0 || ply >= len(t.moves) {
+		return nil
+	}
+	return t.moves[ply][:0]
+}
+
+func (t *searchTables) keepScratch(ply int, moves []move) {
+	if ply < 0 || ply >= len(t.moves) {
+		return
+	}
+	t.moves[ply] = moves
+}
+
+// ttScore converts a search score into its ply-independent table form so a
+// mate found at one depth still reports the right distance when the position is
+// reached through a transposition at another depth.
+func ttScore(score, ply int) int {
+	if score > mateScore-maxPly {
+		return score + ply
+	}
+	if score < -mateScore+maxPly {
+		return score - ply
+	}
+	return score
+}
+
+// ttScoreFromPly is the inverse of ttScore.
+func ttScoreFromPly(score, ply int) int {
+	if score > mateScore-maxPly {
+		return score - ply
+	}
+	if score < -mateScore+maxPly {
+		return score + ply
+	}
+	return score
+}
+
+func (t *searchTables) probe(key uint64, depth, alpha, beta, ply int) (int, bool) {
 	if t == nil {
 		return 0, false
 	}
@@ -667,22 +359,23 @@ func (t *searchTables) probe(key uint64, depth, alpha, beta int) (int, bool) {
 	if !ok || entry.depth < depth {
 		return 0, false
 	}
+	score := ttScoreFromPly(entry.score, ply)
 	switch entry.flag {
 	case 0:
-		return entry.score, true
+		return score, true
 	case 1:
-		if entry.score >= beta {
-			return entry.score, true
+		if score >= beta {
+			return score, true
 		}
 	case 2:
-		if entry.score <= alpha {
-			return entry.score, true
+		if score <= alpha {
+			return score, true
 		}
 	}
 	return 0, false
 }
 
-func (t *searchTables) store(key uint64, depth, score, alpha, beta int, best move) {
+func (t *searchTables) store(key uint64, depth, score, alpha, beta, ply int, best move) {
 	if t == nil {
 		return
 	}
@@ -692,35 +385,7 @@ func (t *searchTables) store(key uint64, depth, score, alpha, beta int, best mov
 	} else if score >= beta {
 		flag = 1
 	}
-	t.tt[key] = ttEntry{depth: depth, score: score, flag: flag, best: best}
-}
-
-func (g *Game) evaluateLeaf(st *State, acc *nnue.Accumulator, tables *searchTables) int {
-	if g.nnue == nil || acc == nil {
-		return evaluate(st)
-	}
-	var key uint64
-	if tables != nil {
-		key = stateKey(st)
-		if score, ok := tables.eval[key]; ok {
-			return score
-		}
-	}
-	score, err := g.nnue.EvaluateAccumulator(acc, colorString(st.Turn))
-	if err != nil {
-		return evaluate(st)
-	}
-	if tables != nil {
-		tables.eval[key] = score
-	}
-	return score
-}
-
-func stateKey(st *State) uint64 {
-	if st.hash != 0 {
-		return st.hash
-	}
-	return calcHash(st.Board, st.Turn)
+	t.tt[key] = ttEntry{depth: depth, score: ttScore(score, ply), flag: flag, best: best}
 }
 
 func nnueCode(p int8) int {
@@ -772,40 +437,12 @@ func nnuePieces(board [Size]int8) []int {
 	return out
 }
 
-func nextAccumulator(n *nnue.Network, acc *nnue.Accumulator, board [Size]int8, m move) *nnue.Accumulator {
-	if n == nil || acc == nil {
-		return nil
-	}
-	return n.UpdateMove(acc, board, m.From, m.To)
-}
-
-func evaluate(st *State) int {
-	score := 0
-	for idx, p := range st.Board {
-		if p == 0 {
-			continue
-		}
-		piece := absPiece(p)
-		value := pieceValue[piece]
-		mirror := idx
-		if p < 0 {
-			mirror = (9-idx/9)*9 + (8 - idx%9)
-		}
-		value += evalTable(piece)[mirror]
-		if p > 0 {
-			score += value
-		} else {
-			score -= value
-		}
-	}
-	if st.Turn == Black {
-		return -score
-	}
-	return score
-}
-
 func (g *Game) status(st *State) game.Status {
-	ms := legalMoves(st)
+	return g.statusFrom(st, legalMoves(st))
+}
+
+// statusFrom derives the position status from an already generated move list.
+func (g *Game) statusFrom(st *State, ms []move) game.Status {
 	check := inCheck(st, st.Turn)
 	if len(ms) == 0 {
 		if check {

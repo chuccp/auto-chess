@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/chuccp/auto-chess/internal/game"
@@ -12,6 +13,14 @@ import (
 	c3search "github.com/paulsonkoly/chess-3/search"
 	"github.com/paulsonkoly/chess-3/transp"
 )
+
+// chess-3 keeps its transposition table in the Search object and allocates it
+// eagerly. A fresh 16 MiB table per request is pure garbage in a stateless
+// service, so searches borrow one from a pool; chess-3 is explicitly designed
+// to reuse this state between searches.
+var nativeSearchPool = sync.Pool{
+	New: func() any { return c3search.New(16 * transp.MegaBytes) },
+}
 
 // searchNative runs the pure-Go Chess-3 engine. Chess-3 is MIT licensed and
 // searches at roughly 3000 CCRL Elo.
@@ -51,7 +60,8 @@ func (g *Game) searchNative(ctx context.Context, pos game.Position, opts game.Se
 	}
 
 	counters := c3search.Counters{}
-	s := c3search.New(16 * transp.MegaBytes)
+	s := nativeSearchPool.Get().(*c3search.Search)
+	defer nativeSearchPool.Put(s)
 	score, best, _ := s.Go(b,
 		c3search.WithSoftTime(timeLimit.Milliseconds()),
 		c3search.WithDepth(c3.Depth(depth)),
@@ -80,7 +90,9 @@ func (g *Game) searchNative(ctx context.Context, pos game.Position, opts game.Se
 	}
 	if opts.Forbids(g.moveView(st, m)) {
 		// chess-3 cannot exclude root moves; the builtin search honours the
-		// caller's ban list.
+		// caller's ban list. Only the remaining budget is spent so the retry
+		// cannot double the request latency.
+		opts.TimeLimit = game.RemainingBudget(timeLimit, time.Since(start))
 		return g.searchBuiltin(ctx, pos, opts)
 	}
 

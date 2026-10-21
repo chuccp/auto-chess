@@ -75,6 +75,13 @@ func parseFEN(fen string) (*State, error) {
 			return nil, game.NewError(game.CodeInvalidPosition, "FEN 吃过路兵格无效：%q", fields[3])
 		}
 		st.EP = sq
+		// FEN only records the en-passant square when a capture is actually
+		// available. Some writers always emit it, so drop an impossible target
+		// instead of rejecting the position: otherwise the move generator
+		// invents a diagonal capture with no pawn to capture.
+		if !validEnPassant(st) {
+			st.EP = -1
+		}
 	}
 	if len(fields) > 4 {
 		if n, err := strconv.Atoi(fields[4]); err == nil && n >= 0 {
@@ -95,6 +102,37 @@ func parseFEN(fen string) (*State, error) {
 		return nil, game.NewError(game.CodeInvalidPosition, "FEN 违规：非行棋方处于被将军状态")
 	}
 	return st, nil
+}
+
+// validEnPassant reports whether the FEN en-passant square is consistent with
+// the board and the side to move: the passed pawn must be the right colour on
+// the right square, and a pawn of the side to move must be able to capture it.
+func validEnPassant(st *State) bool {
+	if st.EP < 0 || st.EP >= 64 || st.Board[st.EP] != 0 {
+		return false
+	}
+	file, rank := fileOf(st.EP), rankOf(st.EP)
+	if st.Turn == White {
+		// Black just made a double push; its pawn stands one rank below the target.
+		if rank != 5 || st.Board[st.EP-8] != -Pawn {
+			return false
+		}
+		for _, df := range []int{-1, 1} {
+			if f := file + df; onBoard(f, 4) && st.Board[squareAt(f, 4)] == Pawn {
+				return true
+			}
+		}
+		return false
+	}
+	if rank != 2 || st.Board[st.EP+8] != Pawn {
+		return false
+	}
+	for _, df := range []int{-1, 1} {
+		if f := file + df; onBoard(f, 3) && st.Board[squareAt(f, 3)] == -Pawn {
+			return true
+		}
+	}
+	return false
 }
 
 func countPiece(board [64]int8, p int8) int {
@@ -158,7 +196,11 @@ func (st *State) fen() string {
 }
 
 func (g *Game) status(st *State) game.Status {
-	legal := legalMoves(st)
+	return g.statusFrom(st, legalMoves(st))
+}
+
+// statusFrom derives the position status from an already generated move list.
+func (g *Game) statusFrom(st *State, legal []move) game.Status {
 	check := inCheck(st, st.Turn)
 	if len(legal) == 0 {
 		if check {

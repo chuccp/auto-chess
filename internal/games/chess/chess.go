@@ -143,7 +143,8 @@ func (g *Game) Encode(pos game.Position, includeLegalMoves bool) game.PositionVi
 		}
 		board[i] = colorLetter(colorOf(p)) + letter
 	}
-	status := g.status(st)
+	legal := legalMoves(st)
+	status := g.statusFrom(st, legal)
 	view := game.PositionView{
 		FEN:        st.fen(),
 		Board:      board,
@@ -156,7 +157,7 @@ func (g *Game) Encode(pos game.Position, includeLegalMoves bool) game.PositionVi
 		view.LastMove = &m
 	}
 	if includeLegalMoves {
-		view.LegalMoves = g.LegalMoves(st)
+		view.LegalMoves = g.moveViews(st, legal)
 		view.LegalMoveCount = len(view.LegalMoves)
 	}
 	return view
@@ -165,7 +166,10 @@ func (g *Game) Encode(pos game.Position, includeLegalMoves bool) game.PositionVi
 // LegalMoves implements game.Game.
 func (g *Game) LegalMoves(pos game.Position) []game.Move {
 	st := pos.(*State)
-	ms := legalMoves(st)
+	return g.moveViews(st, legalMoves(st))
+}
+
+func (g *Game) moveViews(st *State, ms []move) []game.Move {
 	out := make([]game.Move, 0, len(ms))
 	for _, m := range ms {
 		out = append(out, g.moveView(st, m))

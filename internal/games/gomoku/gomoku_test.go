@@ -88,3 +88,15 @@ func TestDecodeValidation(t *testing.T) {
 }
 
 func intPtr(v int) *int { return &v }
+
+func TestDecodeRejectsInconsistentTurn(t *testing.T) {
+	board := make([]string, Size)
+	board[0] = "b" // black has one stone, so it is White's turn
+	_, err := (&Game{}).Decode(game.PositionInput{Board: board, Turn: "b"})
+	if err == nil {
+		t.Fatal("turn=b with one black stone should be rejected")
+	}
+	if _, err := (&Game{}).Decode(game.PositionInput{Board: board, Turn: "w"}); err != nil {
+		t.Fatalf("turn=w should be accepted: %v", err)
+	}
+}

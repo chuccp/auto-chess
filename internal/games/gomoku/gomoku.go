@@ -104,9 +104,17 @@ func (g *Game) Decode(in game.PositionInput) (game.Position, error) {
 	default:
 		return nil, game.NewError(game.CodeInvalidPosition, "turn 必须是 b 或 w，实际 %q", in.Turn)
 	}
-	if in.Turn == "" && b > w {
-		st.Turn = White
+	// Black moves first, so the piece counts determine whose turn it is. Reject
+	// a turn that would let one side move twice in a row.
+	expected := Black
+	if b > w {
+		expected = White
 	}
+	if in.Turn != "" && st.Turn != expected {
+		return nil, game.NewError(game.CodeInvalidPosition,
+			"turn=%s 与棋子数量不一致，当前应为 %s", turnString(st.Turn), turnString(expected))
+	}
+	st.Turn = expected
 	st.recompute()
 	return st, nil
 }

@@ -318,7 +318,9 @@ func canCapture(board [Size]int8, from int, attacker int8, to int) bool {
 	if colorOf(target) == colorOf(attacker) {
 		return false
 	}
-	if animalOf(target) == Rat && water[to] && animalOf(attacker) != Rat {
+	// A rat in the water and a piece on land cannot capture each other; only
+	// rats in the water may fight there.
+	if water[from] != water[to] && (animalOf(attacker) == Rat || animalOf(target) == Rat) {
 		return false
 	}
 	if animalOf(attacker) == Rat && animalOf(target) == Elephant && !water[from] {

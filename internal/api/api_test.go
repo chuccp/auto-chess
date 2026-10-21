@@ -350,6 +350,11 @@ func TestMoveTerminalPosition(t *testing.T) {
 	if data["move"] != nil {
 		t.Fatalf("terminal position should not return a move: %v", data["move"])
 	}
+	// Early game-over returns must still carry a complete evaluation shape.
+	eval, _ := data["evaluation"].(map[string]any)
+	if eval["unit"] != "centipawn" || eval["perspective"] != "w" {
+		t.Fatalf("terminal evaluation shape = %v", eval)
+	}
 }
 
 func TestMoveStreamEvents(t *testing.T) {
@@ -745,5 +750,27 @@ func TestGamesListEngines(t *testing.T) {
 	}
 	if got := byID["gomoku"]; len(got) != 1 || got[0] != "builtin" {
 		t.Fatalf("gomoku engines = %v, want [builtin]", got)
+	}
+}
+
+func TestApplyMoveAcceptsReturnedMove(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.Close()
+	position := map[string]any{
+		"game": "xiangqi",
+		"fen":  "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1",
+	}
+	_, legal := postJSON(t, srv.URL+"/api/v1/legal-moves", position)
+	moves := legal["data"].(map[string]any)["position"].(map[string]any)["legalMoves"].([]any)
+	// Send the first legal move back exactly as the API returned it.
+	body := map[string]any{
+		"game":     "xiangqi",
+		"fen":      position["fen"],
+		"move":     moves[0],
+		"gameOver": false,
+	}
+	res, out := postJSON(t, srv.URL+"/api/v1/apply-move", body)
+	if res.StatusCode != 200 || out["ok"] != true {
+		t.Fatalf("applying a returned move failed: status=%d body=%v", res.StatusCode, out)
 	}
 }

@@ -500,34 +500,33 @@ func isGoal(color int8, id int) bool {
 	return homeRed[id]
 }
 
+var jumpDirs = [][2]int{{0, 2}, {0, -2}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}}
+
 func genMoves(st *State) []rawMove {
-	var moves []rawMove
-	seen := map[int]bool{}
-	add := func(from, to int, jump bool) {
-		key := from*Holes + to
-		if seen[key] {
-			return
-		}
-		seen[key] = true
-		moves = append(moves, rawMove{from: from, to: to, jump: jump})
-	}
+	moves := make([]rawMove, 0, 32)
 	for from, p := range st.Board {
 		if p != st.Turn {
 			continue
 		}
+		// Only moves starting at this hole are generated below, so a per-hole
+		// set is enough to deduplicate. Fixed-size arrays keep move generation
+		// allocation-free; maps here dominated the search's garbage before.
+		var seen [Holes]bool
 		for _, n := range neighbors[from] {
-			if st.Board[n] == 0 {
-				add(from, n, false)
+			if st.Board[n] == 0 && !seen[n] {
+				seen[n] = true
+				moves = append(moves, rawMove{from: from, to: n})
 			}
 		}
-		// Jump chains.
-		visited := map[int]bool{from: true}
-		queue := []int{from}
-		for len(queue) > 0 {
-			cur := queue[0]
-			queue = queue[1:]
+		// Jump chains: every hole reachable by consecutive jumps is one move.
+		var visited [Holes]bool
+		visited[from] = true
+		var queue [Holes]int
+		queue[0] = from
+		for head, tail := 0, 1; head < tail; head++ {
+			cur := queue[head]
 			row, x2 := holeRow[cur], holeX2[cur]
-			for _, d := range [][2]int{{0, 2}, {0, -2}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}} {
+			for _, d := range jumpDirs {
 				mid, okMid := holeByXY[[2]int{row + d[0], x2 + d[1]}]
 				land, okLand := holeByXY[[2]int{row + 2*d[0], x2 + 2*d[1]}]
 				if !okMid || !okLand {
@@ -537,8 +536,12 @@ func genMoves(st *State) []rawMove {
 					continue
 				}
 				visited[land] = true
-				add(from, land, true)
-				queue = append(queue, land)
+				if !seen[land] {
+					seen[land] = true
+					moves = append(moves, rawMove{from: from, to: land, jump: true})
+				}
+				queue[tail] = land
+				tail++
 			}
 		}
 	}

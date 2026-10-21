@@ -115,7 +115,10 @@ func (g *Game) searchPosition(ctx context.Context, pos game.Position, opts game.
 		case "hard":
 			depth = 5
 		case "master":
-			depth = 6
+			// Depth 7 completes in roughly 1.6s of the 6s master budget on a
+			// scalar NNUE host; depth 8 needs ~6.4s and would only waste the
+			// rest of the budget before being discarded.
+			depth = 7
 		}
 	}
 	limit := game.TimeFor(opts.Difficulty, opts.TimeLimit)
@@ -290,7 +293,7 @@ func (g *Game) negamaxPos(p *Position, depth, alpha, beta, ply int, nodes *int64
 	*nodes++
 	key := p.key()
 	alpha0 := alpha
-	if score, ok := tables.probe(key, depth, alpha, beta); ok {
+	if score, ok := tables.probe(key, depth, alpha, beta, ply); ok {
 		return score
 	}
 	if *nodes&1023 == 0 && (time.Now().After(deadline) || ctx.Err() != nil) {
@@ -300,7 +303,8 @@ func (g *Game) negamaxPos(p *Position, depth, alpha, beta, ply int, nodes *int64
 	if p.Halfmove >= 120 {
 		return 0
 	}
-	moves := p.legalMoves()
+	moves := p.legalMovesInto(tables.scratch(ply))
+	tables.keepScratch(ply, moves)
 	if len(moves) == 0 {
 		return -mateScore + ply
 	}
@@ -380,7 +384,7 @@ func (g *Game) negamaxPos(p *Position, depth, alpha, beta, ply int, nodes *int64
 		best = futilityScore
 	}
 	if !*timedOut {
-		tables.store(key, depth, best, alpha0, beta, bestMove)
+		tables.store(key, depth, best, alpha0, beta, ply, bestMove)
 	}
 	return best
 }
@@ -401,7 +405,8 @@ func (g *Game) quiescePos(p *Position, alpha, beta, ply int, nodes *int64, deadl
 		if knownMoves != nil {
 			moves = knownMoves
 		} else {
-			moves = p.legalMoves()
+			moves = p.legalMovesInto(tables.scratch(ply))
+			tables.keepScratch(ply, moves)
 		}
 		if len(moves) == 0 {
 			return -mateScore + ply
@@ -417,7 +422,8 @@ func (g *Game) quiescePos(p *Position, alpha, beta, ply int, nodes *int64, deadl
 		if knownMoves != nil {
 			moves = knownMoves
 		} else {
-			moves = p.legalMoves()
+			moves = p.legalMovesInto(tables.scratch(ply))
+			tables.keepScratch(ply, moves)
 		}
 		captures := moves[:0]
 		for _, m := range moves {

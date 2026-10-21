@@ -105,6 +105,11 @@ type PositionNG struct {
 	CounterMoves [PIECE_NB][SQUARE_NB]MoveNG
 	LastMoveTo   Square // tracks the destination square of the last move for counter-move lookup
 	LastMovePc   Piece  // tracks the piece that made the last move
+
+	// Search is the mutable state of the search running on this position. It
+	// lives on the position (rather than in package globals) so separate
+	// positions can be searched concurrently.
+	Search SearchState
 }
 
 func (p *PositionNG) PieceOn(s Square) Piece {

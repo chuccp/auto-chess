@@ -3,14 +3,53 @@ package godogpaw
 import (
 	"fmt"
 	"math"
+	"sync"
 	"sync/atomic"
 	"time"
 )
 
-var (
-	PvTable  = [MAX_MOVES * MAX_MOVES]MoveNG{}
-	PvLength = [MAX_MOVES]int{}
-)
+// SearchState is the mutable state of one search. Keeping it per position
+// instead of in package globals lets independent positions be searched
+// concurrently.
+type SearchState struct {
+	PvTable  [MAX_MOVES * MAX_MOVES]MoveNG
+	PvLength [MAX_MOVES]int
+	TT       *TransTable
+	stop     atomic.Int32
+}
+
+// StopSearch asks this position's running search to stop.
+func (p *PositionNG) StopSearch() { p.Search.stop.Store(1) }
+
+func (p *PositionNG) shouldStop() bool { return p.Search.stop.Load() != 0 }
+
+func (p *PositionNG) storePvMove(move MoveNG, searchPly int) {
+	pv := &p.Search.PvTable
+	length := &p.Search.PvLength
+	pv[searchPly*int(MAX_MOVES)+searchPly] = move
+	for nextPly := searchPly + 1; nextPly < length[searchPly+1]; nextPly++ {
+		pv[searchPly*int(MAX_MOVES)+nextPly] = pv[(searchPly+1)*int(MAX_MOVES)+nextPly]
+	}
+	length[searchPly] = length[searchPly+1]
+}
+
+// searchTTPool recycles the 16 MiB transposition table. Entries are keyed by
+// Zobrist hash, so reusing a table across positions is safe and avoids a large
+// allocation per request.
+var searchTTPool = sync.Pool{New: func() any { return NewTranTable(16) }}
+
+func (p *PositionNG) acquireTT() {
+	if p.Search.TT == nil {
+		p.Search.TT = searchTTPool.Get().(*TransTable)
+	}
+}
+
+func (p *PositionNG) releaseTT() {
+	if p.Search.TT != nil {
+		searchTTPool.Put(p.Search.TT)
+		p.Search.TT = nil
+	}
+}
 
 // Pre-computed LMR reduction table: lmrTable[depth][moveCount].
 var lmrTable [64][64]int
@@ -30,28 +69,8 @@ type SearchLimits struct {
 	Infinite  bool
 }
 
-// stopFlag is set to 1 when the search should be aborted.
-var stopFlag atomic.Int32
-
-// StopSearch sets the flag to abort the search.
-func StopSearch() {
-	stopFlag.Store(1)
-}
-
-func shouldStop() bool {
-	return stopFlag.Load() != 0
-}
-
-func StorePvMove(move MoveNG, searchPly int) {
-	PvTable[searchPly*int(MAX_MOVES)+searchPly] = move
-	for nextPly := searchPly + 1; nextPly < PvLength[searchPly+1]; nextPly++ {
-		PvTable[searchPly*int(MAX_MOVES)+nextPly] = PvTable[(searchPly+1)*int(MAX_MOVES)+nextPly]
-	}
-	PvLength[searchPly] = PvLength[searchPly+1]
-}
-
 func Quiescence(alpha, beta Value, pos *PositionNG) (bestScore Value) {
-	PvLength[pos.GamePly] = pos.GamePly
+	pos.Search.PvLength[pos.GamePly] = pos.GamePly
 	evaluation := pos.Evaluate()
 	if pos.GamePly >= int(MAX_MOVES) {
 		return evaluation
@@ -78,7 +97,7 @@ func Quiescence(alpha, beta Value, pos *PositionNG) (bestScore Value) {
 		score := -Quiescence(-beta, -alpha, pos)
 		pos.UndoMove(currentMove)
 		if score > alpha {
-			StorePvMove(currentMove, pos.GamePly)
+			pos.storePvMove(currentMove, pos.GamePly)
 			alpha = score
 
 			if score >= beta {
@@ -91,7 +110,7 @@ func Quiescence(alpha, beta Value, pos *PositionNG) (bestScore Value) {
 
 func Negamax(alpha, beta Value, pos *PositionNG, depth uint8, doNullMove bool) (bestScore Value) {
 	MaybeYield()
-	PvLength[pos.GamePly] = pos.GamePly
+	pos.Search.PvLength[pos.GamePly] = pos.GamePly
 	rootNode := pos.GamePly == 0
 	pvNode := alpha != beta-1
 	hashFlag := TT_ALPHA
@@ -116,7 +135,7 @@ func Negamax(alpha, beta Value, pos *PositionNG, depth uint8, doNullMove bool) (
 	}
 
 	// Check time periodically (every 4096 nodes at root level)
-	if pos.Nodes&4095 == 0 && shouldStop() {
+	if pos.Nodes&4095 == 0 && pos.shouldStop() {
 		return 0
 	}
 
@@ -124,7 +143,7 @@ func Negamax(alpha, beta Value, pos *PositionNG, depth uint8, doNullMove bool) (
 	var bestMove MoveNG
 	if pos.GamePly > 0 {
 		var scoreInt16 int16
-		scoreInt16, ttMove = readHashEntry(pos.St.Top().key, int16(alpha), int16(beta), &bestMove, depth, uint8(pos.GamePly))
+		scoreInt16, ttMove = readHashEntry(pos, pos.St.Top().key, int16(alpha), int16(beta), &bestMove, depth, uint8(pos.GamePly))
 		score = int32(scoreInt16)
 		if score != int32(NO_HASH) && !pvNode {
 			return score
@@ -293,7 +312,7 @@ func Negamax(alpha, beta Value, pos *PositionNG, depth uint8, doNullMove bool) (
 		movesSearched++
 
 		// Check for search abort
-		if shouldStop() {
+		if pos.shouldStop() {
 			return 0
 		}
 
@@ -301,11 +320,11 @@ func Negamax(alpha, beta Value, pos *PositionNG, depth uint8, doNullMove bool) (
 			hashFlag = TT_EXACT
 			bestMove = currentMove
 			alpha = score
-			StorePvMove(currentMove, pos.GamePly)
+			pos.storePvMove(currentMove, pos.GamePly)
 
 			if score >= beta {
 				// Store hash entry with beta flag
-				writeHashEntry(pos.St.Top().key, int16(beta), bestMove, depth, uint8(pos.GamePly), TT_BETA)
+				writeHashEntry(pos, pos.St.Top().key, int16(beta), bestMove, depth, uint8(pos.GamePly), TT_BETA)
 
 				if !isCapture {
 					// Store killer moves
@@ -341,7 +360,7 @@ func Negamax(alpha, beta Value, pos *PositionNG, depth uint8, doNullMove bool) (
 	}
 
 	// Store hash entry with the score
-	writeHashEntry(pos.St.Top().key, int16(alpha), bestMove, depth, uint8(pos.GamePly), hashFlag)
+	writeHashEntry(pos, pos.St.Top().key, int16(alpha), bestMove, depth, uint8(pos.GamePly), hashFlag)
 
 	return alpha
 }
@@ -376,8 +395,14 @@ func (pos *PositionNG) SearchPositionWithLimits(limits SearchLimits) (bestMove M
 }
 
 func (pos *PositionNG) searchPositionWithLimits(limits SearchLimits, progress ProgressFunc) (bestMove MoveNG) {
+	pos.acquireTT()
+	defer pos.releaseTT()
 	clearSearch(pos)
-	stopFlag.Store(0)
+	// Clear the stop flag on exit instead of on entry: a caller may cancel the
+	// request between starting the search and reaching this point, and resetting
+	// on entry would swallow that signal. Defers run after the timer cleanup
+	// below, so the flag cannot be set again once it is cleared here.
+	defer pos.Search.stop.Store(0)
 	now := time.Now()
 	var prevScore Value
 
@@ -393,7 +418,7 @@ func (pos *PositionNG) searchPositionWithLimits(limits SearchLimits, progress Pr
 			defer timer.Stop()
 			select {
 			case <-timer.C:
-				stopFlag.Store(1)
+				pos.Search.stop.Store(1)
 			case <-stopTimer:
 			}
 		}()
@@ -437,17 +462,17 @@ func (pos *PositionNG) searchPositionWithLimits(limits SearchLimits, progress Pr
 		}
 
 		// If search was stopped mid-iteration, use best move from last complete iteration
-		if shouldStop() && currentDepth > 1 {
+		if pos.shouldStop() && currentDepth > 1 {
 			break
 		}
 
 		prevScore = score
-		bestMove = PvTable[0]
+		bestMove = pos.Search.PvTable[0]
 
 		if progress != nil {
-			pv := make([]string, 0, int(PvLength[0]))
-			for cnt := 0; cnt < PvLength[0]; cnt++ {
-				pv = append(pv, Move2Str(PvTable[cnt]))
+			pv := make([]string, 0, int(pos.Search.PvLength[0]))
+			for cnt := 0; cnt < pos.Search.PvLength[0]; cnt++ {
+				pv = append(pv, Move2Str(pos.Search.PvTable[cnt]))
 			}
 			progress(SearchProgress{
 				Depth: int(currentDepth),
@@ -459,15 +484,15 @@ func (pos *PositionNG) searchPositionWithLimits(limits SearchLimits, progress Pr
 		} else {
 			fmt.Printf("info score cp %d depth %d nodes %d time %v pv",
 				score, currentDepth, pos.Nodes, time.Since(now))
-			for cnt := 0; cnt < PvLength[0]; cnt++ {
-				fmt.Printf(" %s", Move2Str(PvTable[cnt]))
+			for cnt := 0; cnt < pos.Search.PvLength[0]; cnt++ {
+				fmt.Printf(" %s", Move2Str(pos.Search.PvTable[cnt]))
 			}
 			fmt.Println()
 		}
 	}
 
 	if bestMove == MOVE_NONE {
-		bestMove = PvTable[0]
+		bestMove = pos.Search.PvTable[0]
 	}
 	return bestMove
 }
@@ -475,8 +500,8 @@ func (pos *PositionNG) searchPositionWithLimits(limits SearchLimits, progress Pr
 func clearSearch(pos *PositionNG) {
 	pos.GamePly = 0
 	pos.Nodes = 0
-	clear(PvTable[:])
-	clear(PvLength[:])
+	clear(pos.Search.PvTable[:])
+	clear(pos.Search.PvLength[:])
 	clear(pos.Killers[:])
 	// Don't clear history between searches - it accumulates useful data
 	// But apply aging (divide by 2)
@@ -487,8 +512,9 @@ func clearSearch(pos *PositionNG) {
 			}
 		}
 	}
-	// Increment TT age
-	age++
+	// Increment the generation so entries from a previous search are replaced
+	// first. The counter lives on the table: it is reused across searches.
+	pos.Search.TT.Age++
 }
 
 const (
@@ -499,8 +525,9 @@ const (
 
 const NO_HASH int16 = 32767
 
-func readHashEntry(key Key, alpha, beta int16, bestMove *MoveNG, depth, ply uint8) (int16, MoveNG) {
-	entry := &TT.Entries[key&TT.Mask]
+func readHashEntry(pos *PositionNG, key Key, alpha, beta int16, bestMove *MoveNG, depth, ply uint8) (int16, MoveNG) {
+	tt := pos.Search.TT
+	entry := &tt.Entries[key&tt.Mask]
 	if entry.Key == key {
 		*bestMove = entry.Move
 		if entry.Depth >= depth {
@@ -527,8 +554,9 @@ func readHashEntry(key Key, alpha, beta int16, bestMove *MoveNG, depth, ply uint
 }
 
 // writeHashEntry stores data in the transposition table with age-based replacement.
-func writeHashEntry(key Key, score int16, bestMove MoveNG, depth, ply uint8, flag int8) {
-	entry := &TT.Entries[key&TT.Mask]
+func writeHashEntry(pos *PositionNG, key Key, score int16, bestMove MoveNG, depth, ply uint8, flag int8) {
+	tt := pos.Search.TT
+	entry := &tt.Entries[key&tt.Mask]
 	if score < -MATE_SCORE {
 		score -= int16(ply)
 	}
@@ -537,6 +565,7 @@ func writeHashEntry(key Key, score int16, bestMove MoveNG, depth, ply uint8, fla
 	}
 
 	// Replace if: different age (old search), higher depth, or exact bound
+	age := tt.Age
 	if entry.Age != age || entry.Depth <= depth || flag == TT_EXACT {
 		entry.Key = key
 		entry.Score = score

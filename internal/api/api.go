@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"runtime/debug"
 	"strconv"
@@ -205,21 +206,72 @@ func (c *Controller) resolve(req *web.Request, bodyGame string) (game.Game, stri
 	return g, meta.ID, nil
 }
 
-func joinIDs(ids []string) string {
-	out := ""
-	for i, id := range ids {
-		if i > 0 {
-			out += ", "
-		}
-		out += id
+func joinIDs(ids []string) string { return strings.Join(ids, ", ") }
+
+// maxJSONBody bounds the JSON body we read ourselves. The framework's
+// MaxBodySize still applies to it.
+const maxJSONBody = 1 << 20
+
+// bindJSON normalizes move coordinates before handing the body to the
+// framework binder. The binder cannot decode a field that is either an integer
+// or an object, so {"from": {"index": 12, ...}} is rewritten to {"from": 12}
+// first. Everything else (weak typing, snake_case field matching) stays with
+// the framework.
+func bindJSON(req *web.Request, v any) error {
+	body, err := io.ReadAll(io.LimitReader(req.Request().Body, maxJSONBody+1))
+	if err != nil {
+		return err
 	}
-	return out
+	if len(body) > maxJSONBody {
+		return fmt.Errorf("请求体超过 %d 字节", maxJSONBody)
+	}
+	if len(bytes.TrimSpace(body)) == 0 {
+		return errors.New("请求体为空")
+	}
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.UseNumber() // keep int64 seed values exact through the re-encode
+	var generic any
+	if err := dec.Decode(&generic); err != nil {
+		return err
+	}
+	normalizeSquareRefs(generic)
+	normalized, err := json.Marshal(generic)
+	if err != nil {
+		return err
+	}
+	req.Request().Body = io.NopCloser(bytes.NewReader(normalized))
+	return req.BindJSON(v)
+}
+
+// normalizeSquareRefs rewrites coordinate objects used for "from", "to" and
+// "index" into their bare index. The response move format can therefore be sent
+// straight back to apply-move or forbiddenMoves.
+func normalizeSquareRefs(v any) {
+	switch node := v.(type) {
+	case map[string]any:
+		for _, key := range []string{"from", "to", "index"} {
+			obj, ok := node[key].(map[string]any)
+			if !ok {
+				continue
+			}
+			if idx, ok := obj["index"]; ok {
+				node[key] = idx
+			}
+		}
+		for _, child := range node {
+			normalizeSquareRefs(child)
+		}
+	case []any:
+		for _, child := range node {
+			normalizeSquareRefs(child)
+		}
+	}
 }
 
 func bindMoveRequest(req *web.Request) (moveRequest, error) {
 	var body moveRequest
 	if !req.IsGet() {
-		if err := req.BindJSON(&body); err != nil {
+		if err := bindJSON(req, &body); err != nil {
 			return body, fmt.Errorf("请求体不是合法 JSON：%w", err)
 		}
 		return body, nil
@@ -292,8 +344,12 @@ func validateForbidden(list []game.MoveInput) error {
 }
 
 // allForbidden reports whether every legal move is banned. An empty legal list
-// (game over) is not "all banned": there is nothing to forbid.
+// (game over) is not "all banned": there is nothing to forbid. An empty ban list
+// never bans anything, so skip the move generation entirely.
 func allForbidden(g game.Game, pos game.Position, list []game.MoveInput) bool {
+	if len(list) == 0 {
+		return false
+	}
 	legal := g.LegalMoves(pos)
 	if len(legal) == 0 {
 		return false
@@ -403,6 +459,17 @@ func resolveEngine(g game.Game, requested, gameID string) (string, error) {
 		"%s 不支持引擎 %q，可选：%s", gameID, requested, strings.Join(names, ", "))
 }
 
+// normalizeResult fills response fields an engine may leave empty on an early
+// game-over return, so the evaluation shape stays stable for every game.
+func normalizeResult(g game.Game, pos game.Position, result *game.SearchResult) {
+	if result.Evaluation.Unit == "" {
+		result.Evaluation.Unit = "centipawn"
+	}
+	if result.Evaluation.Perspective == "" {
+		result.Evaluation.Perspective = g.Encode(pos, false).Turn
+	}
+}
+
 func (c *Controller) move(req *web.Request) (any, error) {
 	body, err := bindMoveRequest(req)
 	if err != nil {
@@ -429,6 +496,7 @@ func (c *Controller) move(req *web.Request) (any, error) {
 	if result.Engine == "" {
 		result.Engine = "builtin"
 	}
+	normalizeResult(prep.game, prep.position, &result)
 	return ok(req, result)
 }
 
@@ -539,6 +607,7 @@ func (c *Controller) moveStream(req *web.Request) (any, error) {
 				if result.Engine == "" {
 					result.Engine = "builtin"
 				}
+				normalizeResult(prep.game, prep.position, &result)
 				if !sseSend(stream, "result", result) {
 					return nil
 				}
@@ -616,7 +685,7 @@ type applyMoveData struct {
 
 func (c *Controller) applyMove(req *web.Request) (any, error) {
 	var body applyMoveRequest
-	if err := req.BindJSON(&body); err != nil {
+	if err := bindJSON(req, &body); err != nil {
 		return fail(req, http.StatusBadRequest, game.CodeBadRequest, "请求体不是合法 JSON："+err.Error())
 	}
 	g, gameID, err := c.resolve(req, body.Game)
@@ -673,7 +742,7 @@ type legalMovesData struct {
 
 func (c *Controller) legalMoves(req *web.Request) (any, error) {
 	var body legalMovesRequest
-	if err := req.BindJSON(&body); err != nil {
+	if err := bindJSON(req, &body); err != nil {
 		return fail(req, http.StatusBadRequest, game.CodeBadRequest, "请求体不是合法 JSON："+err.Error())
 	}
 	g, gameID, err := c.resolve(req, body.Game)

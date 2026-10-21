@@ -9,6 +9,7 @@ package game
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -47,6 +48,55 @@ type MoveInput struct {
 // IsEmpty reports whether the input names no square or move at all.
 func (f MoveInput) IsEmpty() bool {
 	return f.UCI == "" && f.From == nil && f.To == nil && f.Index == nil && f.Promotion == ""
+}
+
+// UnmarshalJSON accepts squares either as plain indexes ({"from": 12}) or as the
+// coordinate objects the API returns ({"from": {"index": 12, "row": 3, "col": 4}}).
+// That lets a client send a move from a response back unchanged to apply-move or
+// forbiddenMoves.
+func (f *MoveInput) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		UCI       string          `json:"uci"`
+		From      json.RawMessage `json:"from"`
+		To        json.RawMessage `json:"to"`
+		Index     json.RawMessage `json:"index"`
+		Promotion string          `json:"promotion"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	f.UCI = raw.UCI
+	f.Promotion = raw.Promotion
+	var err error
+	if f.From, err = decodeSquareRef(raw.From); err != nil {
+		return err
+	}
+	if f.To, err = decodeSquareRef(raw.To); err != nil {
+		return err
+	}
+	if f.Index, err = decodeSquareRef(raw.Index); err != nil {
+		return err
+	}
+	return nil
+}
+
+// decodeSquareRef reads a square reference that is either a bare index or a
+// coordinate object with an "index" field.
+func decodeSquareRef(raw json.RawMessage) (*int, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+	var n int
+	if err := json.Unmarshal(raw, &n); err == nil {
+		return &n, nil
+	}
+	var coord struct {
+		Index *int `json:"index"`
+	}
+	if err := json.Unmarshal(raw, &coord); err != nil {
+		return nil, fmt.Errorf("坐标必须是整数或形如 {\"index\": 12} 的对象：%w", err)
+	}
+	return coord.Index, nil
 }
 
 // Matches reports whether the input matches the move. Every field set in the
@@ -378,6 +428,20 @@ func TimeFor(difficulty string, requested time.Duration) time.Duration {
 		return requested
 	}
 	return Presets[NormalizeDifficulty(difficulty)].Time
+}
+
+// RemainingBudget returns how much of a time budget is left after elapsed. It is
+// used when a search has to be restarted on another engine (for example because
+// the caller banned the first engine's move): the retry gets only the time that
+// is left, so the request cannot take twice as long as requested. A small floor
+// (below the HTTP layer's timeout slack) keeps the retry able to return a move.
+func RemainingBudget(budget, elapsed time.Duration) time.Duration {
+	const floor = 200 * time.Millisecond
+	remaining := budget - elapsed
+	if remaining < floor {
+		return floor
+	}
+	return remaining
 }
 
 // IsGridBoard validates the length of a decoded grid board.

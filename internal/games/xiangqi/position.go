@@ -337,6 +337,13 @@ func (p *Position) appendTargets(from int, mask, own bitboard, out []move) []mov
 }
 
 func (p *Position) pseudoMoves() []move {
+	return p.pseudoMovesInto(make([]move, 0, 64))
+}
+
+// pseudoMovesInto appends the pseudo-legal moves to dst and returns the
+// extended slice. Search code passes a per-ply scratch buffer so move
+// generation does not allocate at every node.
+func (p *Position) pseudoMovesInto(out []move) []move {
 	side := 0
 	if p.Turn == Black {
 		side = 1
@@ -344,7 +351,6 @@ func (p *Position) pseudoMoves() []move {
 	own := p.occ[side]
 	enemy := p.occ[1-side]
 	occ := own.or(enemy)
-	out := make([]move, 0, 64)
 	for bb := own; !bb.isZero(); {
 		from := bb.lsb()
 		bb.clear(from)
@@ -452,6 +458,12 @@ func (p *Position) inCheck(side int8) bool {
 }
 
 func (p *Position) legalMoves() []move {
+	return p.legalMovesInto(make([]move, 0, 64))
+}
+
+// legalMovesInto writes the legal moves into dst and returns them. Filtering is
+// done in place, so no extra allocation is needed when dst has enough capacity.
+func (p *Position) legalMovesInto(dst []move) []move {
 	check := p.inCheck(p.Turn)
 	idx := 8 - int(King)
 	if p.Turn == Red {
@@ -478,7 +490,7 @@ func (p *Position) legalMoves() []move {
 			}
 		}
 	}
-	moves := p.pseudoMoves()
+	moves := p.pseudoMovesInto(dst)
 	side := p.Turn
 	out := moves[:0]
 	for _, m := range moves {

@@ -22,12 +22,10 @@ const (
 type TransTable struct {
 	Entries []TTEntry
 	Mask    uint64
+	// Age is the generation of the current search. Entries written by an older
+	// search can always be replaced.
+	Age uint8
 }
-
-var (
-	TT  = NewTranTable(16)
-	age uint8
-)
 
 func roundPowerOfTwo(size int) int {
 	x := 1

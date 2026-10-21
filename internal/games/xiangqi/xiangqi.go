@@ -548,7 +548,7 @@ func (g *Game) quiesce(st *State, alpha, beta, ply int, nodes *int64, deadline t
 	orderMoves(st, moves, &tables.history, tables.killers[ply][0], tables.killers[ply][1])
 	best := -mateScore * 2
 	for _, m := range moves {
-		if !check && st.Board[m.To] != 0 && stand+pieceValue[absPiece(st.Board[m.To])]+100 <= alpha {
+		if !check && st.Board[m.To] != 0 && stand+pieceValue[absPiece(st.Board[m.To])]+200 <= alpha {
 			continue
 		}
 		child := makeMove(st, m)

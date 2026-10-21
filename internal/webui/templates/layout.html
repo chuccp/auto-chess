@@ -18,7 +18,7 @@
     })();
   </script>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23ff6b4a'/%3E%3Ctext x='32' y='46' font-size='38' text-anchor='middle' fill='%23160c08'%3E%E2%99%9E%3C/text%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/assets/app.css?v=20261021-20">
+  <link rel="stylesheet" href="/assets/app.css?v=20261021-21">
 </head>
 <body id="top" class="page-{{.Page}}">
   <div class="bg-grid" aria-hidden="true"></div>
@@ -31,8 +31,10 @@
   {{template "footer" .}}
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/assets/site.js?v=20261021-20" defer></script>
-  {{if eq .Page "playground"}}<script src="/assets/playground.js?v=20261021-20" defer></script>{{end}}
-  {{if eq .Page "play"}}<script src="/assets/play.js?v=20261021-20" defer></script>{{end}}
+  <script src="/assets/site.js?v=20261021-21" defer></script>
+  {{if eq .Page "playground"}}<script src="/assets/playground.js?v=20261021-21" defer></script>{{end}}
+  {{if eq .Page "play"}}<script src="/assets/play.js?v=20261021-21" defer></script>{{end}}
+  <!-- 百度统计 -->
+  <script>var _hmt=_hmt||[];(function(){var hm=document.createElement("script");hm.src="https://hm.baidu.com/hm.js?5fcd56298c9c1d2e3828a11e52ad2cd7";var s=document.getElementsByTagName("script")[0];s.parentNode.insertBefore(hm,s)})()</script>
 </body>
 </html>{{end}}

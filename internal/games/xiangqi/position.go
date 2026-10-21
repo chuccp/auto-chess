@@ -452,10 +452,27 @@ func (p *Position) inCheck(side int8) bool {
 }
 
 func (p *Position) legalMoves() []move {
+	check := p.inCheck(p.Turn)
+	idx := 8 - int(King)
+	if p.Turn == Red {
+		idx = int(King) + 8
+	}
+	king := p.pieces[idx].lsb()
+	var kingRays bitboard
+	if king >= 0 {
+		for d := 0; d < 4; d++ {
+			kingRays = kingRays.or(rays[d][king])
+		}
+	}
 	moves := p.pseudoMoves()
 	side := p.Turn
 	out := moves[:0]
 	for _, m := range moves {
+		pc := p.Board[m.From]
+		if !check && absPiece(pc) != King && !kingRays.has(m.From) {
+			out = append(out, m)
+			continue
+		}
 		u := p.doMove(m)
 		if !p.inCheck(side) {
 			out = append(out, m)

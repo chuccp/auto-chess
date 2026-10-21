@@ -246,6 +246,16 @@ func (g *Game) searchBuiltin(ctx context.Context, pos game.Position, opts game.S
 		result.Status = g.status(st)
 		return result, nil
 	}
+	allowed := make([]move, 0, len(rootMoves))
+	for _, m := range rootMoves {
+		if !opts.Forbids(g.moveView(st, m)) {
+			allowed = append(allowed, m)
+		}
+	}
+	rootMoves = allowed
+	if len(rootMoves) == 0 {
+		return game.SearchResult{}, game.NewError(game.CodeBadRequest, "forbiddenMoves 覆盖了全部合法着法，没有可走的棋")
+	}
 	depth := game.DepthFor(opts.Difficulty, opts.MaxDepth, 8)
 	if opts.MaxDepth == 0 {
 		switch game.NormalizeDifficulty(opts.Difficulty) {

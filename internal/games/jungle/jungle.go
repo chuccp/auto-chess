@@ -448,6 +448,16 @@ func (g *Game) Search(ctx context.Context, pos game.Position, opts game.SearchOp
 		result.Status = g.Encode(st, false).Status
 		return result, nil
 	}
+	allowed := make([]rawMove, 0, len(moves))
+	for _, m := range moves {
+		if !opts.Forbids(moveView(m.from, m.to, 0)) {
+			allowed = append(allowed, m)
+		}
+	}
+	moves = allowed
+	if len(moves) == 0 {
+		return game.SearchResult{}, game.NewError(game.CodeBadRequest, "forbiddenMoves 覆盖了全部合法着法，没有可走的棋")
+	}
 	orderMoves(st, moves)
 	best := moves[0]
 	bestScore := 0

@@ -251,22 +251,36 @@ func (g *Game) Search(ctx context.Context, pos game.Position, opts game.SearchOp
 	timedOut := false
 	rng := rand.New(rand.NewSource(opts.Seed))
 
-	// Opening: play the center point.
+	// Caller-banned points must never be played; everything else stays legal.
+	banned := func(idx int) bool { return opts.Forbids(coordMove(idx)) }
+	keep := func(list []int) []int {
+		out := make([]int, 0, len(list))
+		for _, idx := range list {
+			if !banned(idx) {
+				out = append(out, idx)
+			}
+		}
+		return out
+	}
+
+	// Opening: play the center point (unless the caller forbids it).
 	if st.Moves == 0 {
 		idx := (Rows/2)*Cols + Cols/2
-		next, move, _ := g.Apply(st, game.MoveInput{Index: &idx})
-		nv := g.Encode(next, false)
-		result.Move = &move
-		result.Position = &nv
-		result.Status = nv.Status
-		result.Evaluation = game.Evaluation{Score: 0, Unit: "centipawn", Perspective: turnString(st.Turn)}
-		result.Search = game.SearchInfo{Depth: 1, TimeMs: time.Since(start).Milliseconds(), PV: []game.Move{move}}
-		opts.Report(game.SearchProgress{Depth: 1, Score: 0, TimeMs: time.Since(start).Milliseconds(), Best: &move, PV: []game.Move{move}})
-		return result, nil
+		if !banned(idx) {
+			next, move, _ := g.Apply(st, game.MoveInput{Index: &idx})
+			nv := g.Encode(next, false)
+			result.Move = &move
+			result.Position = &nv
+			result.Status = nv.Status
+			result.Evaluation = game.Evaluation{Score: 0, Unit: "centipawn", Perspective: turnString(st.Turn)}
+			result.Search = game.SearchInfo{Depth: 1, TimeMs: time.Since(start).Milliseconds(), PV: []game.Move{move}}
+			opts.Report(game.SearchProgress{Depth: 1, Score: 0, TimeMs: time.Since(start).Milliseconds(), Best: &move, PV: []game.Move{move}})
+			return result, nil
+		}
 	}
 
 	// Immediate win.
-	if wins := winningMoves(st); len(wins) > 0 {
+	if wins := keep(winningMoves(st)); len(wins) > 0 {
 		idx := wins[rng.Intn(len(wins))]
 		next, move, _ := g.Apply(st, game.MoveInput{Index: &idx})
 		nv := g.Encode(next, false)
@@ -280,11 +294,23 @@ func (g *Game) Search(ctx context.Context, pos game.Position, opts game.SearchOp
 		return result, nil
 	}
 
-	candidates := candidates(st, depth, 18)
-	if blocks := winningMovesFor(st, other(st.Turn)); len(blocks) > 0 {
+	candidates := keep(candidates(st, depth, 18))
+	if blocks := keep(winningMovesFor(st, other(st.Turn))); len(blocks) > 0 {
 		// The opponent threatens an immediate five. Only blocking moves can
 		// survive, so do not let the candidate cap discard them.
 		candidates = blocks
+	}
+	if len(candidates) == 0 {
+		// The ban list covered every heuristic candidate; every remaining
+		// legal point is still playable.
+		for idx, v := range st.Board {
+			if v == Empty && !banned(idx) {
+				candidates = append(candidates, idx)
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		return game.SearchResult{}, game.NewError(game.CodeBadRequest, "forbiddenMoves 覆盖了全部合法着法，没有可走的棋")
 	}
 	best := candidates[0]
 	bestScore := 0

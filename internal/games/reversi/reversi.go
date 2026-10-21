@@ -259,7 +259,16 @@ func (g *Game) Search(ctx context.Context, pos game.Position, opts game.SearchOp
 	nodes := int64(0)
 	timedOut := false
 
-	moves := legalIndexes(st)
+	legal := legalIndexes(st)
+	moves := make([]int, 0, len(legal))
+	for _, idx := range legal {
+		if !opts.Forbids(coordMove(idx)) {
+			moves = append(moves, idx)
+		}
+	}
+	if len(moves) == 0 {
+		return game.SearchResult{}, game.NewError(game.CodeBadRequest, "forbiddenMoves 覆盖了全部合法着法，没有可走的棋")
+	}
 	order(st, moves)
 	best := moves[0]
 	bestScore := 0

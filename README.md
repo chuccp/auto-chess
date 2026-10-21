@@ -132,7 +132,7 @@ POST /api/v1/games/xiangqi/move
 }
 ```
 
-`move` 是唯一需要消费的字段。调用方自行落子后，把新局面再次提交给接口即可。
+`move` 是唯一需要消费的字段。调用方自行落子后，把新局面再次提交给接口即可。需要禁止引擎走某些位置时，请求里加 `forbiddenMoves`（见 [禁着列表](#禁着列表forbiddenmoves)）。
 
 ### `POST /api/v1/apply-move`
 
@@ -150,18 +150,19 @@ POST /api/v1/games/xiangqi/move
 
 ### `POST /api/v1/legal-moves`
 
-返回指定局面的全部合法走法，便于前端做落点提示或校验。请求体与 `move` 相同，不需要难度和时间。
+返回指定局面的全部合法走法，便于前端做落点提示或校验。请求体与 `move` 相同，不需要难度和时间。传 `forbiddenMoves` 时，命中的走法会带 `"forbidden": true`（见 [禁着列表](#禁着列表forbiddenmoves)），是否禁止落点由客户端自己判断。
 
 ```json
 {
   "game": "xiangqi",
-  "fen": "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1"
+  "fen": "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1",
+  "forbiddenMoves": [{ "to": 22 }]
 }
 ```
 
 ### `POST /api/v1/move/stream`（SSE）
 
-同样的局面请求，改成 `text/event-stream`，把迭代加深的每一层实时推给调用方。高难度（`hard` / `master`）时尤其有用。
+同样的局面请求（同样支持 `forbiddenMoves`），改成 `text/event-stream`，把迭代加深的每一层实时推给调用方。高难度（`hard` / `master`）时尤其有用。
 
 ```bash
 curl -N -X POST http://127.0.0.1:8090/api/v1/move/stream \
@@ -250,6 +251,7 @@ GET /api/v1/move/stream?payload=%7B%22game%22%3A%22gomoku%22%2C...%7D
 | `timeLimitMs` | int | 否 | 50–15000，默认随难度 |
 | `maxDepth` | int | 否 | 1–10，不传则按难度 |
 | `seed` | int64 | 否 | 随机种子；用于部分棋种在等价走法/立即获胜走法中的选择 |
+| `forbiddenMoves` | array | 否 | 禁着列表：引擎不会走这些着法，可同时传多条；见 [禁着列表](#禁着列表forbiddenmoves) |
 
 `fen` / `board` / `turn` 也可以放在顶层。嵌套的 `position` 优先。
 
@@ -271,6 +273,34 @@ GET /api/v1/move/stream?payload=%7B%22game%22%3A%22gomoku%22%2C...%7D
 ```json
 { "game": "xiangqi", "fen": "...", "engine": "godogpaw", "difficulty": "master" }
 ```
+
+### 禁着列表（forbiddenMoves）
+
+在 `move`、`move/stream`、`legal-moves` 的请求里传 `forbiddenMoves` 数组，即可禁止引擎下在某些位置或走某些步。哪些位置要禁由调用方（客户端）自己判断，接口只负责避开。
+
+条目与 `apply-move` 的 `move` 同构，没有写的字段视为通配：
+
+| 条目 | 含义 |
+|---|---|
+| `{"index": 115}` | 禁止落子在格子 115（落子类棋种） |
+| `{"to": 22}` | 禁止任何子落到位置 22，即“禁止下某个位置” |
+| `{"from": 25, "to": 22}` | 禁止某一步 |
+| `{"uci": "h2e2"}` | FEN 棋种可直接按 UCI 禁止 |
+| `{"index": 115, "promotion": "q"}` | 可组合；每个已填字段都必须匹配才算命中 |
+
+```json
+{
+  "game": "xiangqi",
+  "fen": "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1",
+  "difficulty": "normal",
+  "forbiddenMoves": [{ "to": 22 }, { "uci": "h2e2" }]
+}
+```
+
+- 可以同时传多条（多步）；命中的着法引擎一律不走，由引擎在剩余合法着法中自己选最优；
+- `legal-moves` 的响应会给命中的着法打上 `"forbidden": true`，列表本身不过滤，是否拦截由客户端自己判断；
+- 覆盖全部合法着法时返回 `400`、`BAD_REQUEST`；条目为空（不写任何字段）同样返回 `400`；
+- 只限制引擎本次选择的这一步，不限制搜索树内部的假想走法。
 
 ### 响应字段
 

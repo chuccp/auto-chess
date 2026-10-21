@@ -88,6 +88,11 @@ func (g *Game) searchNative(ctx context.Context, pos game.Position, opts game.Se
 	if !legal {
 		return game.SearchResult{}, game.NewError("ENGINE_ERROR", "godogpaw 返回了非法走法 %q", ucci)
 	}
+	if opts.Forbids(g.moveView(m)) {
+		// godogpaw cannot exclude root moves; the bitboard search honours the
+		// caller's ban list.
+		return g.searchPosition(ctx, pos, opts, g.nnue != nil)
+	}
 
 	next := makeMove(st, m)
 	next.LastFrom, next.LastTo = m.From, m.To

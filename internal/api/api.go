@@ -168,6 +168,9 @@ type moveRequest struct {
 	TimeLimitMs int            `json:"timeLimitMs,omitempty"`
 	MaxDepth    int            `json:"maxDepth,omitempty"`
 	Seed        int64          `json:"seed,omitempty"`
+	// ForbiddenMoves bans moves for the engine. The caller decides which moves
+	// or points to forbid; the engine then picks the best move among the rest.
+	ForbiddenMoves []game.MoveInput `json:"forbiddenMoves,omitempty"`
 }
 
 func (r *moveRequest) position() game.PositionInput {
@@ -268,7 +271,39 @@ func bindMoveRequest(req *web.Request) (moveRequest, error) {
 			return body, fmt.Errorf("board 参数不是 JSON 数组：%w", err)
 		}
 	}
+	if raw := req.Query("forbiddenMoves"); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &body.ForbiddenMoves); err != nil {
+			return body, fmt.Errorf("forbiddenMoves 参数不是 JSON 数组：%w", err)
+		}
+	}
 	return body, nil
+}
+
+// validateForbidden rejects ban-list entries that name no square or move; an
+// empty entry would otherwise silently match nothing.
+func validateForbidden(list []game.MoveInput) error {
+	for i, f := range list {
+		if f.IsEmpty() {
+			return game.NewError(game.CodeBadRequest,
+				"forbiddenMoves[%d] 需要指定 uci、index、from/to 或 promotion 中的至少一项", i)
+		}
+	}
+	return nil
+}
+
+// allForbidden reports whether every legal move is banned. An empty legal list
+// (game over) is not "all banned": there is nothing to forbid.
+func allForbidden(g game.Game, pos game.Position, list []game.MoveInput) bool {
+	legal := g.LegalMoves(pos)
+	if len(legal) == 0 {
+		return false
+	}
+	for _, m := range legal {
+		if !game.MatchesAny(list, m) {
+			return false
+		}
+	}
+	return true
 }
 
 type preparedSearch struct {
@@ -292,9 +327,15 @@ func (c *Controller) prepareSearch(req *web.Request, body moveRequest) (*prepare
 	if err != nil {
 		return nil, err
 	}
+	if err := validateForbidden(body.ForbiddenMoves); err != nil {
+		return nil, err
+	}
 	pos, err := g.Decode(body.position())
 	if err != nil {
 		return nil, err
+	}
+	if allForbidden(g, pos, body.ForbiddenMoves) {
+		return nil, game.NewError(game.CodeBadRequest, "forbiddenMoves 覆盖了全部合法着法，没有可走的棋")
 	}
 	difficulty := game.NormalizeDifficulty(body.Difficulty)
 	limit := game.TimeFor(difficulty, time.Duration(body.TimeLimitMs)*time.Millisecond)
@@ -331,6 +372,7 @@ func (c *Controller) prepareSearch(req *web.Request, body moveRequest) (*prepare
 			TimeLimit:  limit,
 			Seed:       seed,
 			Engine:     engine,
+			Forbidden:  body.ForbiddenMoves,
 		},
 	}, nil
 }
@@ -602,6 +644,9 @@ type legalMovesRequest struct {
 	FEN      string         `json:"fen,omitempty"`
 	Board    []string       `json:"board,omitempty"`
 	Turn     string         `json:"turn,omitempty"`
+	// ForbiddenMoves marks matching entries in the reply with "forbidden": true
+	// so the client can forbid play there itself. The list is not filtered out.
+	ForbiddenMoves []game.MoveInput `json:"forbiddenMoves,omitempty"`
 }
 
 func (r *legalMovesRequest) position() game.PositionInput {
@@ -635,11 +680,19 @@ func (c *Controller) legalMoves(req *web.Request) (any, error) {
 	if err != nil {
 		return failErr(req, err)
 	}
+	if err := validateForbidden(body.ForbiddenMoves); err != nil {
+		return failErr(req, err)
+	}
 	pos, err := g.Decode(body.position())
 	if err != nil {
 		return failErr(req, err)
 	}
 	view := g.Encode(pos, true)
+	for i := range view.LegalMoves {
+		if game.MatchesAny(body.ForbiddenMoves, view.LegalMoves[i]) {
+			view.LegalMoves[i].Forbidden = true
+		}
+	}
 	return ok(req, legalMovesData{Game: gameID, Count: view.LegalMoveCount, View: view})
 }
 

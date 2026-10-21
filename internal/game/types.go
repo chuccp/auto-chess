@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -31,12 +32,69 @@ type PositionInput struct {
 //
 // FEN based games use UCI (for example "e2e4"). Grid based placement games use
 // Index. All other games use From/To flat board indexes.
+//
+// The same shape is used for forbiddenMoves entries. Fields left empty are
+// wildcards there: {"to": 20} bans every move landing on square 20 while
+// {"from": 12, "to": 20} bans one concrete move.
 type MoveInput struct {
 	UCI       string `json:"uci,omitempty"`
 	From      *int   `json:"from,omitempty"`
 	To        *int   `json:"to,omitempty"`
 	Index     *int   `json:"index,omitempty"`
 	Promotion string `json:"promotion,omitempty"`
+}
+
+// IsEmpty reports whether the input names no square or move at all.
+func (f MoveInput) IsEmpty() bool {
+	return f.UCI == "" && f.From == nil && f.To == nil && f.Index == nil && f.Promotion == ""
+}
+
+// Matches reports whether the input matches the move. Every field set in the
+// input must equal the corresponding move field; unset fields are wildcards.
+// An empty input matches nothing.
+func (f MoveInput) Matches(m Move) bool {
+	set := false
+	if f.UCI != "" {
+		set = true
+		if m.UCI == "" || !strings.EqualFold(f.UCI, m.UCI) {
+			return false
+		}
+	}
+	if f.Index != nil {
+		set = true
+		if m.Index == nil || m.Index.Index != *f.Index {
+			return false
+		}
+	}
+	if f.From != nil {
+		set = true
+		if m.From == nil || m.From.Index != *f.From {
+			return false
+		}
+	}
+	if f.To != nil {
+		set = true
+		if m.To == nil || m.To.Index != *f.To {
+			return false
+		}
+	}
+	if f.Promotion != "" {
+		set = true
+		if !strings.EqualFold(f.Promotion, m.Promotion) {
+			return false
+		}
+	}
+	return set
+}
+
+// MatchesAny reports whether the move matches any of the inputs.
+func MatchesAny(list []MoveInput, m Move) bool {
+	for _, f := range list {
+		if f.Matches(m) {
+			return true
+		}
+	}
+	return false
 }
 
 // Coord locates a square or intersection on a board.
@@ -58,6 +116,10 @@ type Move struct {
 	Flipped   int    `json:"flipped,omitempty"`
 	Jump      bool   `json:"jump,omitempty"`
 	Check     bool   `json:"check,omitempty"`
+	// Forbidden marks moves banned by the caller's forbiddenMoves list. It is
+	// only set on legal-move listings so a client can grey out banned points;
+	// the client decides whether to enforce the ban itself.
+	Forbidden bool `json:"forbidden,omitempty"`
 }
 
 // Status describes the state of a position after the last move.
@@ -162,6 +224,11 @@ type SearchOptions struct {
 	// "godogpaw", "pikafish-nnue", "chess-3" or "builtin". Empty (or "auto")
 	// lets the game pick its default. Unsupported names return CodeUnknownEngine.
 	Engine string
+	// Forbidden lists caller-banned moves (see MoveInput for the matching
+	// rules). Engines must never return a matching move as the chosen move and
+	// pick freely among the remaining legal moves; only the root move is
+	// restricted.
+	Forbidden []MoveInput
 	// Progress, when set, is called after each completed iterative-deepening
 	// level. Callbacks must be fast and non-blocking; the SSE API forwards them
 	// through a buffered channel and drops stale progress if the client is slow.
@@ -189,6 +256,11 @@ func (o SearchOptions) Report(p SearchProgress) {
 	if o.Progress != nil {
 		o.Progress(p)
 	}
+}
+
+// Forbids reports whether the move is banned by the caller's Forbidden list.
+func (o SearchOptions) Forbids(m Move) bool {
+	return MatchesAny(o.Forbidden, m)
 }
 
 // SearchInfo reports search statistics.

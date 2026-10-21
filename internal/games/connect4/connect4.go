@@ -267,7 +267,16 @@ func (g *Game) Search(ctx context.Context, pos game.Position, opts game.SearchOp
 	var reached int
 	bestLine := []int{}
 
-	rootMoves := legalIndexes(st)
+	legal := legalIndexes(st)
+	rootMoves := make([]int, 0, len(legal))
+	for _, idx := range legal {
+		if !opts.Forbids(coordMove(idx)) {
+			rootMoves = append(rootMoves, idx)
+		}
+	}
+	if len(legal) > 0 && len(rootMoves) == 0 {
+		return game.SearchResult{}, game.NewError(game.CodeBadRequest, "forbiddenMoves 覆盖了全部合法着法，没有可走的棋")
+	}
 	orderMoves(st, rootMoves)
 	for d := 1; d <= depth; d++ {
 		if time.Now().After(deadline) || ctx.Err() != nil {
@@ -316,14 +325,13 @@ func (g *Game) Search(ctx context.Context, pos game.Position, opts game.SearchOp
 	}
 	if best < 0 {
 		// The only way this happens is an immediate timeout; fall back to the
-		// first legal move so the API always returns something playable.
-		moves := legalIndexes(st)
-		if len(moves) == 0 {
+		// first playable move so the API always returns something playable.
+		if len(rootMoves) == 0 {
 			result.GameOver = true
 			result.Status = g.Encode(st, false).Status
 			return result, nil
 		}
-		best = moves[0]
+		best = rootMoves[0]
 		bestScore = 0
 	}
 	next, move, _ := g.Apply(st, game.MoveInput{Index: &best})

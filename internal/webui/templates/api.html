@@ -132,6 +132,7 @@
             <tr><td><code>timeLimitMs</code></td><td>int</td><td>思考时间上限，50–15000，默认随难度。</td></tr>
             <tr><td><code>maxDepth</code></td><td>int</td><td>最大思考深度，1–10；不传则按难度。</td></tr>
             <tr><td><code>seed</code></td><td>int64</td><td>随机种子，用于部分棋种的等价走法选择。</td></tr>
+            <tr><td><code>forbiddenMoves</code></td><td>array</td><td>禁着列表：引擎不会走这些着法，可同时传多条；匹配规则见下方“禁着列表”。</td></tr>
           </tbody>
         </table>
       </div>
@@ -180,7 +181,8 @@
   "notation": "h2e2",
   "captured": "bP",               // optional
   "flipped": 3,                   // reversi flips
-  "jump": true                    // checkers / jungle river jump
+  "jump": true,                   // checkers / jungle river jump
+  "forbidden": true               // legal-moves 里被 forbiddenMoves 禁止时为 true
 }</pre>
     </article>
     <article class="doc-card">
@@ -214,6 +216,22 @@
       "legalMoves": [ { "uci": "..." }, ... ]
     }
   }
+}</pre>
+    </article>
+  </div>
+
+  <div class="doc-grid">
+    <article class="doc-card">
+      <h3>禁着列表 <span class="muted">forbiddenMoves</span></h3>
+      <p>在 move、move/stream、legal-moves 的请求里传 forbiddenMoves 数组，即可禁止引擎下在某些位置或走某些步。条目与 apply-move 的 move 同构，没有写的字段视为通配：只传 index 是禁止落子点，只传 to 是禁止任何子落到该位置，from 加 to 是禁止某一步，FEN 棋种也可以直接传 uci。可以同时传多条。</p>
+      <p>引擎会在剩余合法着法中自己选最优；被禁覆盖全部合法着法时返回 BAD_REQUEST。legal-moves 的响应会给命中的着法打上 forbidden 字段，是否拦截由客户端自己判断。</p>
+      <pre class="schema-code">{
+  "forbiddenMoves": [
+    { "index": 115 },          // 落子类棋种：禁止下在这个格子
+    { "to": 22 },              // 移动类棋种：禁止任何子落到 22
+    { "from": 25, "to": 22 },  // 禁止某一步
+    { "uci": "h2e2" }          // FEN 棋种可直接用 uci
+  ]
 }</pre>
     </article>
   </div>

@@ -209,6 +209,130 @@ func TestLegalMoves(t *testing.T) {
 	}
 }
 
+const xiangqiStartFEN = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1"
+
+func legalMovesOf(t *testing.T, srv *httptest.Server, gameID, fen string) []any {
+	t.Helper()
+	res, out := postJSON(t, srv.URL+"/api/v1/legal-moves", map[string]any{"game": gameID, "fen": fen})
+	if res.StatusCode != 200 {
+		t.Fatalf("legal moves status = %d: %v", res.StatusCode, out)
+	}
+	data := out["data"].(map[string]any)
+	position := data["position"].(map[string]any)
+	moves, ok := position["legalMoves"].([]any)
+	if !ok || len(moves) == 0 {
+		t.Fatalf("missing legalMoves: %v", position)
+	}
+	return moves
+}
+
+func TestMoveForbiddenMoves(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.Close()
+
+	// A placement game must not play a banned point: gomoku's opening shortcut
+	// plays the center (index 115), so ban exactly that.
+	res, out := postJSON(t, srv.URL+"/api/v1/move", map[string]any{
+		"game":           "gomoku",
+		"board":          make([]string, 225),
+		"turn":           "b",
+		"difficulty":     "easy",
+		"timeLimitMs":    500,
+		"forbiddenMoves": []map[string]any{{"index": 115}},
+	})
+	if res.StatusCode != 200 || out["ok"] != true {
+		t.Fatalf("gomoku move response: status=%d body=%v", res.StatusCode, out)
+	}
+	move := out["data"].(map[string]any)["move"].(map[string]any)
+	idx := move["index"].(map[string]any)["index"].(float64)
+	if int(idx) == 115 {
+		t.Fatalf("engine played the banned point 115: %v", move)
+	}
+
+	// Ban every legal move but one: the engine must return the survivor.
+	moves := legalMovesOf(t, srv, "xiangqi", xiangqiStartFEN)
+	keep := moves[0].(map[string]any)["uci"].(string)
+	var banned []map[string]any
+	for _, raw := range moves[1:] {
+		banned = append(banned, map[string]any{"uci": raw.(map[string]any)["uci"].(string)})
+	}
+	res, out = postJSON(t, srv.URL+"/api/v1/move", map[string]any{
+		"game":           "xiangqi",
+		"fen":            xiangqiStartFEN,
+		"difficulty":     "easy",
+		"timeLimitMs":    300,
+		"forbiddenMoves": banned,
+	})
+	if res.StatusCode != 200 || out["ok"] != true {
+		t.Fatalf("xiangqi move response: status=%d body=%v", res.StatusCode, out)
+	}
+	move = out["data"].(map[string]any)["move"].(map[string]any)
+	if move["uci"] != keep {
+		t.Fatalf("engine move = %v, want the only un-banned %q", move["uci"], keep)
+	}
+
+	// Banning every legal move is a request error.
+	all := append([]map[string]any{}, banned...)
+	all = append(all, map[string]any{"uci": keep})
+	res, out = postJSON(t, srv.URL+"/api/v1/move", map[string]any{
+		"game":           "xiangqi",
+		"fen":            xiangqiStartFEN,
+		"difficulty":     "easy",
+		"forbiddenMoves": all,
+	})
+	if res.StatusCode != 400 {
+		t.Fatalf("all-banned status = %d, want 400: %v", res.StatusCode, out)
+	}
+	if code := out["error"].(map[string]any)["code"]; code != "BAD_REQUEST" {
+		t.Fatalf("all-banned code = %v, want BAD_REQUEST", code)
+	}
+
+	// An empty entry names nothing and is rejected instead of silently ignored.
+	res, out = postJSON(t, srv.URL+"/api/v1/move", map[string]any{
+		"game":           "xiangqi",
+		"fen":            xiangqiStartFEN,
+		"forbiddenMoves": []map[string]any{{}},
+	})
+	if res.StatusCode != 400 {
+		t.Fatalf("empty entry status = %d, want 400: %v", res.StatusCode, out)
+	}
+}
+
+func TestLegalMovesForbiddenFlags(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.Close()
+
+	// {"to": N} is a position ban: every move landing on N is flagged.
+	moves := legalMovesOf(t, srv, "xiangqi", xiangqiStartFEN)
+	first := moves[0].(map[string]any)
+	toIndex := first["to"].(map[string]any)["index"].(float64)
+
+	res, out := postJSON(t, srv.URL+"/api/v1/legal-moves", map[string]any{
+		"game":           "xiangqi",
+		"fen":            xiangqiStartFEN,
+		"forbiddenMoves": []map[string]any{{"to": toIndex}},
+	})
+	if res.StatusCode != 200 {
+		t.Fatalf("legal moves status = %d: %v", res.StatusCode, out)
+	}
+	position := out["data"].(map[string]any)["position"].(map[string]any)
+	flagged := position["legalMoves"].([]any)
+	sawFlag := false
+	for _, raw := range flagged {
+		m := raw.(map[string]any)
+		isTarget := m["to"].(map[string]any)["index"].(float64) == toIndex
+		if isTarget != (m["forbidden"] == true) {
+			t.Fatalf("move %v forbidden flag = %v, want %v", m["uci"], m["forbidden"], isTarget)
+		}
+		if isTarget {
+			sawFlag = true
+		}
+	}
+	if !sawFlag {
+		t.Fatalf("no move matched the banned destination %v", toIndex)
+	}
+}
+
 func TestMoveTerminalPosition(t *testing.T) {
 	srv := newTestServer(t)
 	defer srv.Close()

@@ -78,6 +78,11 @@ func (g *Game) searchNative(ctx context.Context, pos game.Position, opts game.Se
 	if !legal {
 		return game.SearchResult{}, game.NewError("ENGINE_ERROR", "chess-3 返回了非法走法 %q", uci)
 	}
+	if opts.Forbids(g.moveView(st, m)) {
+		// chess-3 cannot exclude root moves; the builtin search honours the
+		// caller's ban list.
+		return g.searchBuiltin(ctx, pos, opts)
+	}
 
 	next := makeMove(st, m)
 	next.LastFrom, next.LastTo, next.LastPromo = m.From, m.To, m.Promotion

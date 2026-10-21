@@ -287,7 +287,7 @@ func (g *Game) negamaxPos(p *Position, depth, alpha, beta, ply int, nodes *int64
 		return -mateScore + ply
 	}
 	if depth <= 0 {
-		return g.quiescePos(p, alpha, beta, ply, nodes, deadline, ctx, timedOut, acc, tables)
+		return g.quiescePos(p, alpha, beta, ply, nodes, deadline, ctx, timedOut, acc, tables, moves)
 	}
 	if entry, ok := tables.tt[key]; ok && entry.best != (move{}) {
 		moves = moveToFront(moves, entry.best)
@@ -366,7 +366,7 @@ func (g *Game) negamaxPos(p *Position, depth, alpha, beta, ply int, nodes *int64
 	return best
 }
 
-func (g *Game) quiescePos(p *Position, alpha, beta, ply int, nodes *int64, deadline time.Time, ctx context.Context, timedOut *bool, acc *nnue.Accumulator, tables *searchTables) int {
+func (g *Game) quiescePos(p *Position, alpha, beta, ply int, nodes *int64, deadline time.Time, ctx context.Context, timedOut *bool, acc *nnue.Accumulator, tables *searchTables, knownMoves []move) int {
 	*nodes++
 	if *nodes&1023 == 0 && (time.Now().After(deadline) || ctx.Err() != nil) {
 		*timedOut = true
@@ -379,7 +379,11 @@ func (g *Game) quiescePos(p *Position, alpha, beta, ply int, nodes *int64, deadl
 	stand := 0
 	var moves []move
 	if check {
-		moves = p.legalMoves()
+		if knownMoves != nil {
+			moves = knownMoves
+		} else {
+			moves = p.legalMoves()
+		}
 		if len(moves) == 0 {
 			return -mateScore + ply
 		}
@@ -391,7 +395,11 @@ func (g *Game) quiescePos(p *Position, alpha, beta, ply int, nodes *int64, deadl
 		if stand > alpha {
 			alpha = stand
 		}
-		moves = p.legalMoves()
+		if knownMoves != nil {
+			moves = knownMoves
+		} else {
+			moves = p.legalMoves()
+		}
 		captures := moves[:0]
 		for _, m := range moves {
 			if p.Board[m.To] != 0 {
@@ -415,7 +423,7 @@ func (g *Game) quiescePos(p *Position, alpha, beta, ply int, nodes *int64, deadl
 		}
 		childAcc := nextAccumulator(g.nnue, acc, p.Board, m)
 		u := p.doMove(m)
-		score := -g.quiescePos(p, -beta, -alpha, ply+1, nodes, deadline, ctx, timedOut, childAcc, tables)
+		score := -g.quiescePos(p, -beta, -alpha, ply+1, nodes, deadline, ctx, timedOut, childAcc, tables, nil)
 		p.undo(u)
 		if *timedOut {
 			break

@@ -68,14 +68,22 @@ func NewWithNNUE(path string) (*Game, error) {
 		return nil, err
 	}
 	threads := runtime.GOMAXPROCS(0)
-	if threads > 8 {
-		threads = 8
+	if threads > 12 {
+		threads = 12
 	}
 	if threads < 1 {
 		threads = 1
 	}
 	g := &Game{nnue: net, threads: threads}
 	return g, nil
+}
+
+// WithThreads sets the number of root-search workers (0 keeps the default).
+func (g *Game) WithThreads(n int) *Game {
+	if n > 0 {
+		g.threads = n
+	}
+	return g
 }
 
 // WithNativeEngine switches this game to the pure-Go godogpaw engine.

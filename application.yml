@@ -11,3 +11,5 @@ engine:
   xiangqi:
     # 官方 Pikafish 2024-03-10 NNUE；不存在时自动回退 godogpaw
     nnue: pikafish.nnue
+    # 根搜索并行线程数；0 使用默认值 min(GOMAXPROCS, 12)
+    threads: 0

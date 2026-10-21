@@ -28,13 +28,23 @@ type Registry struct {
 // New builds the default registry with all supported games. If nnuePath is
 // provided, xiangqi uses the Pikafish NNUE evaluator instead of godogpaw.
 func New(nnuePath ...string) *Registry {
+	path := ""
+	if len(nnuePath) > 0 {
+		path = nnuePath[0]
+	}
+	return NewWithThreads(path, 0)
+}
+
+// NewWithThreads is New with an explicit xiangqi root-search thread count.
+func NewWithThreads(nnuePath string, threads int) *Registry {
 	r := &Registry{
 		games: make(map[string]game.Game),
 		byID:  make(map[string]game.Meta),
 	}
 	xiangqiGame := game.Game(xiangqi.New().WithNativeEngine())
-	if len(nnuePath) > 0 && strings.TrimSpace(nnuePath[0]) != "" {
-		if withNNUE, err := xiangqi.NewWithNNUE(nnuePath[0]); err == nil {
+	if strings.TrimSpace(nnuePath) != "" {
+		if withNNUE, err := xiangqi.NewWithNNUE(nnuePath); err == nil {
+			withNNUE.WithThreads(threads)
 			xiangqiGame = withNNUE
 		} else {
 			fmt.Fprintf(os.Stderr, "加载 NNUE 失败，回退 godogpaw：%v\n", err)

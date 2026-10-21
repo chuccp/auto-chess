@@ -353,6 +353,7 @@ web:
 engine:
   xiangqi:
     nnue: pikafish.nnue
+    threads: 0
 ```
 
 环境变量：
@@ -360,6 +361,7 @@ engine:
 - `PORT`：覆盖端口
 - `CONTEXT_PATH`：覆盖 contextPath，例如 `/games` 或 `games`
 - `XIANGQI_NNUE`：覆盖中国象棋 NNUE 文件路径
+- `XIANGQI_THREADS`：覆盖根搜索并行线程数；不设置时使用 `min(GOMAXPROCS, 12)`
 
 ### Pikafish NNUE（可选）
 

@@ -363,11 +363,29 @@ engine:
 
 ### Pikafish NNUE（可选）
 
-中国象棋可以加载 Pikafish 2024-03-10 的官方 NNUE 网络：
+中国象棋可以加载 Pikafish 2024-03-10 的官方 NNUE 网络。
 
-1. 从 [Pikafish Releases](https://github.com/official-pikafish/Pikafish/releases/tag/Pikafish-2024-03-10) 下载发布包；
-2. 取出其中的 `pikafish.nnue`，如果是 ZIP 包则解压出真正的 `.nnue` 文件；
-3. 放到项目根目录的 `pikafish.nnue`，或改 `engine.xiangqi.nnue` / `XIANGQI_NNUE`。
+下载地址：
+
+- 发布页：<https://github.com/official-pikafish/Pikafish/releases/tag/Pikafish-2024-03-10>
+- 直接下载：<https://github.com/official-pikafish/Pikafish/releases/download/Pikafish-2024-03-10/Pikafish.2024-03-10.7z>
+
+安装步骤：
+
+1. 下载 `Pikafish.2024-03-10.7z` 并解压发布包；
+2. 发布包中的 `pikafish.nnue` 本身是一个 ZIP 包，需要再解压一次，得到真正的 NNUE 文件；
+3. 把解压后的 `pikafish.nnue` 放到项目根目录，或修改 `engine.xiangqi.nnue` / `XIANGQI_NNUE` 指向它；
+4. 正确的 NNUE 文件大小应为 **43,110,204 字节**，SHA-256 为：
+
+```text
+A5AAB76B978DA545A4F2553F9C6DCE2A36AE29C7A17479139266E8AF5F5B109E
+```
+
+Windows 校验：
+
+```powershell
+Get-FileHash .\pikafish.nnue -Algorithm SHA256
+```
 
 加载成功后，`/api/v1/move` 返回的 `engine` 为 `pikafish-nnue`；文件不存在或解析失败时自动回退 `godogpaw`，不会阻塞启动。
 

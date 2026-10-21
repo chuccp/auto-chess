@@ -55,11 +55,11 @@ type move struct{ From, To int }
 type Game struct {
 	native  bool
 	nnue    *nnue.Network
-	threads int
+	workers int
 }
 
 // New returns a xiangqi engine backed by the built-in search.
-func New() *Game { return &Game{threads: 1} }
+func New() *Game { return &Game{workers: 1} }
 
 // NewWithNNUE loads a Pikafish 2024 .nnue file and uses it for leaf evaluation.
 func NewWithNNUE(path string) (*Game, error) {
@@ -67,14 +67,11 @@ func NewWithNNUE(path string) (*Game, error) {
 	if err != nil {
 		return nil, err
 	}
-	threads := runtime.GOMAXPROCS(0)
-	if threads > 12 {
-		threads = 12
+	workers := runtime.GOMAXPROCS(0)
+	if workers < 1 {
+		workers = 1
 	}
-	if threads < 1 {
-		threads = 1
-	}
-	g := &Game{nnue: net, threads: threads}
+	g := &Game{nnue: net, workers: workers}
 	return g, nil
 }
 
@@ -278,7 +275,7 @@ func (g *Game) searchBuiltin(ctx context.Context, pos game.Position, opts game.S
 		localBest := rootMoves[0]
 		localScore := 0
 		complete := true
-		if g.threads > 1 && d >= 3 && len(rootMoves) > 1 {
+		if g.workers > 1 && d >= 3 && len(rootMoves) > 1 {
 			var pn int64
 			localBest, localScore, pn, complete = g.searchRootSplit(rootMoves, st, rootAcc, d, deadline, ctx)
 			nodes += pn
@@ -367,7 +364,7 @@ func (g *Game) searchRootSplit(rootMoves []move, st *State, rootAcc *nnue.Accumu
 	results := make([]result, len(rootMoves))
 	results[0] = result{move: first, score: bestScore, nodes: nodes, done: true}
 	jobs := make(chan int)
-	workers := g.threads
+	workers := g.workers
 	if workers > len(rootMoves)-1 {
 		workers = len(rootMoves) - 1
 	}

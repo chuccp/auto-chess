@@ -223,7 +223,7 @@ func (g *Game) Search(ctx context.Context, pos game.Position, opts game.SearchOp
 		}
 		return g.searchNative(ctx, pos, opts)
 	}
-	return g.searchBuiltin(ctx, pos, opts)
+	return g.searchPosition(ctx, pos, opts)
 }
 
 func (g *Game) searchBuiltin(ctx context.Context, pos game.Position, opts game.SearchOptions) (game.SearchResult, error) {

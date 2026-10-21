@@ -376,11 +376,15 @@ func isAttacked(board [Size]int8, sq int, by int8) bool {
 }
 
 func orderMoves(st *State, moves []move, history *[2][Size][Size]int32, killer0, killer1 move) {
+	orderMovesBoard(st.Board, st.Turn, moves, history, killer0, killer1)
+}
+
+func orderMovesBoard(board [Size]int8, turn int8, moves []move, history *[2][Size][Size]int32, killer0, killer1 move) {
 	for i := 1; i < len(moves); i++ {
 		m := moves[i]
-		score := moveScore(st, m, history, killer0, killer1)
+		score := moveScoreBoard(board, turn, m, history, killer0, killer1)
 		j := i - 1
-		for ; j >= 0 && moveScore(st, moves[j], history, killer0, killer1) < score; j-- {
+		for ; j >= 0 && moveScoreBoard(board, turn, moves[j], history, killer0, killer1) < score; j-- {
 			moves[j+1] = moves[j]
 		}
 		moves[j+1] = m
@@ -388,9 +392,13 @@ func orderMoves(st *State, moves []move, history *[2][Size][Size]int32, killer0,
 }
 
 func moveScore(st *State, m move, history *[2][Size][Size]int32, killer0, killer1 move) int {
+	return moveScoreBoard(st.Board, st.Turn, m, history, killer0, killer1)
+}
+
+func moveScoreBoard(board [Size]int8, turn int8, m move, history *[2][Size][Size]int32, killer0, killer1 move) int {
 	score := 0
-	if target := st.Board[m.To]; target != 0 {
-		score += 1000 + pieceValue[absPiece(target)]*10 - pieceValue[absPiece(st.Board[m.From])]
+	if target := board[m.To]; target != 0 {
+		score += 1000 + pieceValue[absPiece(target)]*10 - pieceValue[absPiece(board[m.From])]
 	} else {
 		if m == killer0 {
 			score += 800
@@ -399,7 +407,7 @@ func moveScore(st *State, m move, history *[2][Size][Size]int32, killer0, killer
 		}
 		if history != nil {
 			side := 0
-			if st.Turn == Black {
+			if turn == Black {
 				side = 1
 			}
 			score += int(history[side][m.From][m.To])

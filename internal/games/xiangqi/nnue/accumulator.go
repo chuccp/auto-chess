@@ -144,7 +144,14 @@ func codeFromInt8(p int8) int {
 // UpdateMove updates an accumulator for a single move without scanning the
 // whole board. The caller passes the board before the move.
 func (n *Network) UpdateMove(acc *Accumulator, board [90]int8, from, to int) *Accumulator {
-	next := *acc
+	var next Accumulator
+	n.UpdateMoveInto(&next, acc, board, from, to)
+	return &next
+}
+
+// UpdateMoveInto is UpdateMove with a caller-provided destination.
+func (n *Network) UpdateMoveInto(next, acc *Accumulator, board [90]int8, from, to int) {
+	*next = *acc
 	moved := board[from]
 	captured := board[to]
 	if captured != 0 {
@@ -181,7 +188,7 @@ func (n *Network) UpdateMove(acc *Accumulator, board [90]int8, from, to int) *Ac
 	}
 	for p := 0; p < 2; p++ {
 		if rebuild[p] {
-			n.rebuildPerspective(&next, newPieces[:], p)
+			n.rebuildPerspective(next, newPieces[:], p)
 			continue
 		}
 		var add, remove [3]int
@@ -196,7 +203,6 @@ func (n *Network) UpdateMove(acc *Accumulator, board [90]int8, from, to int) *Ac
 		nAdd++
 		n.applyDelta(&next.Values[p], &next.PSQT[p], add[:nAdd], remove[:nRemove])
 	}
-	return &next
 }
 
 func absI8(v int8) int8 {

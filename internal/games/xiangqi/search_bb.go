@@ -136,9 +136,10 @@ func (g *Game) searchPosition(ctx context.Context, pos game.Position, opts game.
 		} else {
 			for i, m := range rootMoves {
 				cp := root.clone()
-				childAcc := nextAccumulator(g.nnue, rootAcc, root.Board, m)
+				childAcc := g.childAccumulator(rootAcc, root.Board, m)
 				cp.doMove(m)
 				score := -g.negamaxPos(cp, d-1, -beta, -alpha, 1, &nodes, deadline, ctx, &timedOut, childAcc, tables)
+				g.releaseAccumulator(childAcc)
 				if timedOut {
 					complete = false
 					break
@@ -193,12 +194,13 @@ func (g *Game) searchPosition(ctx context.Context, pos game.Position, opts game.
 func (g *Game) searchRootSplitPos(rootMoves []move, root *Position, rootAcc *nnue.Accumulator, depth int, deadline time.Time, ctx context.Context) (move, int, int64, bool) {
 	first := rootMoves[0]
 	cp := root.clone()
-	childAcc := nextAccumulator(g.nnue, rootAcc, root.Board, first)
+	childAcc := g.childAccumulator(rootAcc, root.Board, first)
 	cp.doMove(first)
 	firstTables := newSearchTables()
 	var nodes int64
 	var timed bool
 	bestScore := -g.negamaxPos(cp, depth-1, -mateScore*2, mateScore*2, 1, &nodes, deadline, ctx, &timed, childAcc, firstTables)
+	g.releaseAccumulator(childAcc)
 	if timed || time.Now().After(deadline) || ctx.Err() != nil {
 		return first, bestScore, nodes, false
 	}
@@ -229,7 +231,7 @@ func (g *Game) searchRootSplitPos(rootMoves []move, root *Position, rootAcc *nnu
 			for idx := range jobs {
 				r := result{move: rootMoves[idx], done: true}
 				cp := root.clone()
-				acc := nextAccumulator(g.nnue, rootAcc, root.Board, rootMoves[idx])
+				acc := g.childAccumulator(rootAcc, root.Board, rootMoves[idx])
 				cp.doMove(rootMoves[idx])
 				var localTimed bool
 				if time.Now().After(deadline) || ctx.Err() != nil {
@@ -240,6 +242,7 @@ func (g *Game) searchRootSplitPos(rootMoves []move, root *Position, rootAcc *nnu
 						r.done = false
 					}
 				}
+				g.releaseAccumulator(acc)
 				results[idx] = r
 			}
 		}()
@@ -322,7 +325,7 @@ func (g *Game) negamaxPos(p *Position, depth, alpha, beta, ply int, nodes *int64
 		if futility && p.Board[m.To] == 0 {
 			continue
 		}
-		childAcc := nextAccumulator(g.nnue, acc, p.Board, m)
+		childAcc := g.childAccumulator(acc, p.Board, m)
 		u := p.doMove(m)
 		reduction := 0
 		if depth >= 3 && i >= 3 && u.capture == 0 {
@@ -336,6 +339,7 @@ func (g *Game) negamaxPos(p *Position, depth, alpha, beta, ply int, nodes *int64
 			score = -g.negamaxPos(p, depth-1, -beta, -alpha, ply+1, nodes, deadline, ctx, timedOut, childAcc, tables)
 		}
 		p.undo(u)
+		g.releaseAccumulator(childAcc)
 		if score > best {
 			best = score
 			bestMove = m
@@ -421,10 +425,11 @@ func (g *Game) quiescePos(p *Position, alpha, beta, ply int, nodes *int64, deadl
 		if !check && p.Board[m.To] != 0 && stand+pieceValue[absPiece(p.Board[m.To])]+200 <= alpha {
 			continue
 		}
-		childAcc := nextAccumulator(g.nnue, acc, p.Board, m)
+		childAcc := g.childAccumulator(acc, p.Board, m)
 		u := p.doMove(m)
 		score := -g.quiescePos(p, -beta, -alpha, ply+1, nodes, deadline, ctx, timedOut, childAcc, tables, nil)
 		p.undo(u)
+		g.releaseAccumulator(childAcc)
 		if *timedOut {
 			break
 		}

@@ -56,10 +56,15 @@ type Game struct {
 	native  bool
 	nnue    *nnue.Network
 	workers int
+	accPool sync.Pool
 }
 
 // New returns a xiangqi engine backed by the built-in search.
-func New() *Game { return &Game{workers: 1} }
+func New() *Game {
+	g := &Game{workers: 1}
+	g.accPool.New = func() any { return new(nnue.Accumulator) }
+	return g
+}
 
 // NewWithNNUE loads a Pikafish 2024 .nnue file and uses it for leaf evaluation.
 func NewWithNNUE(path string) (*Game, error) {
@@ -72,6 +77,7 @@ func NewWithNNUE(path string) (*Game, error) {
 		workers = 1
 	}
 	g := &Game{nnue: net, workers: workers}
+	g.accPool.New = func() any { return new(nnue.Accumulator) }
 	return g, nil
 }
 
@@ -689,6 +695,20 @@ func nnueCode(p int8) int {
 	return base + code
 }
 
+func (g *Game) childAccumulator(acc *nnue.Accumulator, board [Size]int8, m move) *nnue.Accumulator {
+	if g.nnue == nil || acc == nil {
+		return nil
+	}
+	child := g.accPool.Get().(*nnue.Accumulator)
+	g.nnue.UpdateMoveInto(child, acc, board, m.From, m.To)
+	return child
+}
+
+func (g *Game) releaseAccumulator(acc *nnue.Accumulator) {
+	if acc != nil {
+		g.accPool.Put(acc)
+	}
+}
 func nnuePieces(board [Size]int8) []int {
 	out := make([]int, Size)
 	for i, p := range board {

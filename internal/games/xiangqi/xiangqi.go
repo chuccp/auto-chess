@@ -354,12 +354,32 @@ func (g *Game) negamax(st *State, depth, alpha, beta, ply int, nodes *int64, dea
 		moves = moveToFront(moves, entry.best)
 	}
 	orderMoves(st, moves)
+	if depth >= 3 && !inCheck(st, st.Turn) && hasNonPawnMaterial(st, st.Turn) {
+		nullState := makeNull(st)
+		score := -g.negamax(nullState, depth-3, -beta, -beta+1, ply+1, nodes, deadline, ctx, timedOut, acc, tables)
+		if *timedOut {
+			return 0
+		}
+		if score >= beta {
+			return beta
+		}
+	}
 	best := -mateScore * 2
 	bestMove := move{}
-	for _, m := range moves {
+	for i, m := range moves {
 		child := makeMove(st, m)
 		childAcc := nextAccumulator(g.nnue, acc, &oldPieces, child.Board)
-		score := -g.negamax(child, depth-1, -beta, -alpha, ply+1, nodes, deadline, ctx, timedOut, childAcc, tables)
+		reduction := 0
+		if depth >= 3 && i >= 3 && st.Board[m.To] == 0 {
+			reduction = 1
+			if depth >= 5 && i >= 6 {
+				reduction = 2
+			}
+		}
+		score := -g.negamax(child, depth-1-reduction, -beta, -alpha, ply+1, nodes, deadline, ctx, timedOut, childAcc, tables)
+		if reduction > 0 && score > alpha && !*timedOut {
+			score = -g.negamax(child, depth-1, -beta, -alpha, ply+1, nodes, deadline, ctx, timedOut, childAcc, tables)
+		}
 		if score > best {
 			best = score
 			bestMove = m

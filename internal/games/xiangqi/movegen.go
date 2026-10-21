@@ -235,6 +235,30 @@ func makeMove(st *State, m move) *State {
 	return &next
 }
 
+func makeNull(st *State) *State {
+	next := *st
+	if next.hash == 0 {
+		next.hash = calcHash(st.Board, st.Turn)
+	}
+	next.hash ^= zobristTurn
+	next.Turn = -st.Turn
+	next.Halfmove++
+	return &next
+}
+
+func hasNonPawnMaterial(st *State, side int8) bool {
+	for _, p := range st.Board {
+		if p == 0 || colorOf(p) != side {
+			continue
+		}
+		switch absPiece(p) {
+		case Rook, Cannon, Knight:
+			return true
+		}
+	}
+	return false
+}
+
 func inCheck(st *State, side int8) bool {
 	king := kingSquare(st.Board, side)
 	if king < 0 {

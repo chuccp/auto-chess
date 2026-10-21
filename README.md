@@ -445,7 +445,7 @@ go test ./...
 
 - 不保存棋谱，因此无法检测三次重复局面；需要的话请由调用方根据历史判断终局。
 - 棋钟、50 回合、60 回合等规则由 FEN 中的半回合计数提供，服务端只读取当前值。
-- 国际象棋使用 Chess-3（纯 Go）；中国象棋默认 godogpaw，也可加载 Pikafish 2024 NNUE 网络；NNUE 评估已支持增量累加器和置换表，但没有 Pikafish 的 SIMD 向量化和完整搜索优化，棋力仍低于 Pikafish 原版。
+- 国际象棋使用 Chess-3（纯 Go）；中国象棋默认 godogpaw，也可加载 Pikafish 2024 NNUE 网络；NNUE 评估已支持增量累加器、置换表、Zobrist、空着裁剪和 LMR，但搜索仍是 Go 实现，棋力低于 Pikafish 原版。
 - Pikafish NNUE 网络文件不随仓库分发，需要自行下载；缺少文件时自动回退 godogpaw。
 - 公开接口没有鉴权与限流，部署到公网时请在前面加网关或反向代理。
 

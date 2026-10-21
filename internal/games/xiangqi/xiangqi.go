@@ -44,6 +44,7 @@ type State struct {
 	Fullmove int
 	LastFrom int
 	LastTo   int
+	hash     uint64
 }
 
 type move struct{ From, To int }
@@ -388,28 +389,26 @@ func (g *Game) quiesce(st *State, alpha, beta, ply int, nodes *int64, deadline t
 	if st.Halfmove >= 120 || ply >= 24 {
 		return g.evaluateLeaf(st, acc, tables)
 	}
-	moves := legalMoves(st)
-	if len(moves) == 0 {
-		return -mateScore + ply
-	}
-	stand := g.evaluateLeaf(st, acc, tables)
-	if !inCheck(st, st.Turn) {
+	check := inCheck(st, st.Turn)
+	stand := 0
+	var moves []move
+	if check {
+		moves = legalMoves(st)
+		if len(moves) == 0 {
+			return -mateScore + ply
+		}
+	} else {
+		stand = g.evaluateLeaf(st, acc, tables)
 		if stand >= beta {
 			return stand
 		}
 		if stand > alpha {
 			alpha = stand
 		}
-		var captures []move
-		for _, m := range moves {
-			if st.Board[m.To] != 0 {
-				captures = append(captures, m)
-			}
-		}
-		if len(captures) == 0 {
+		moves = legalCaptures(st)
+		if len(moves) == 0 {
 			return alpha
 		}
-		moves = captures
 	}
 	orderMoves(st, moves)
 	var oldPieces [Size]int
@@ -508,16 +507,10 @@ func (g *Game) evaluateLeaf(st *State, acc *nnue.Accumulator, tables *searchTabl
 }
 
 func stateKey(st *State) uint64 {
-	h := uint64(14695981039346656037)
-	mix := func(v byte) {
-		h ^= uint64(v)
-		h *= 1099511628211
+	if st.hash != 0 {
+		return st.hash
 	}
-	for _, p := range st.Board {
-		mix(byte(p))
-	}
-	mix(byte(st.Turn))
-	return h
+	return calcHash(st.Board, st.Turn)
 }
 
 func nnueCode(p int8) int {

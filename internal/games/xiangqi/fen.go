@@ -69,6 +69,7 @@ func parseFEN(fen string) (*State, error) {
 	if inCheck(st, -st.Turn) {
 		return nil, game.NewError(game.CodeInvalidPosition, "象棋 FEN 违规：非行棋方处于被将军状态")
 	}
+	st.hash = calcHash(st.Board, st.Turn)
 	return st, nil
 }
 

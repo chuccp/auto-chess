@@ -194,10 +194,33 @@ func legalMoves(st *State) []move {
 	return out
 }
 
+func legalCaptures(st *State) []move {
+	pseudo := pseudoMoves(st)
+	out := make([]move, 0, len(pseudo)/2)
+	for _, m := range pseudo {
+		if st.Board[m.To] == 0 {
+			continue
+		}
+		next := makeMove(st, m)
+		if !inCheck(next, st.Turn) {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 func makeMove(st *State, m move) *State {
 	next := *st
 	p := next.Board[m.From]
 	captured := next.Board[m.To]
+	if next.hash == 0 {
+		next.hash = calcHash(st.Board, st.Turn)
+	}
+	next.hash ^= zobristPieces[int(p)+8][m.From] ^ zobristPieces[int(p)+8][m.To]
+	if captured != 0 {
+		next.hash ^= zobristPieces[int(captured)+8][m.To]
+	}
+	next.hash ^= zobristTurn
 	next.Board[m.From] = 0
 	next.Board[m.To] = p
 	if captured != 0 || absPiece(p) == Pawn {

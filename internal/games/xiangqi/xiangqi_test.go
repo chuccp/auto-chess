@@ -87,3 +87,18 @@ func TestFENRoundTrip(t *testing.T) {
 		t.Fatalf("FEN round trip:\n got %s\nwant %s", got, in)
 	}
 }
+
+func TestIncrementalHash(t *testing.T) {
+	st := New().Initial().(*State)
+	for ply := 0; ply < 4; ply++ {
+		moves := legalMoves(st)
+		if len(moves) == 0 {
+			break
+		}
+		st = makeMove(st, moves[0])
+		want := calcHash(st.Board, st.Turn)
+		if st.hash != want {
+			t.Fatalf("ply %d: hash %#x, want %#x", ply, st.hash, want)
+		}
+	}
+}

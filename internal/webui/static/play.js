@@ -46,6 +46,7 @@
     engine: "",
     recordId: "",
     busy: false,
+    animating: false,
     lastMove: null,
     aiDepth: 0,
   };
@@ -262,6 +263,248 @@
     return span;
   }
 
+  // ---- move animation (slide / capture / placement) ----
+
+  const ANIM = { slide: 240, jump: 320, ghost: 300, pop: 210, drop: 330, flip: 340 };
+
+  function reduceMotion() {
+    return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+
+  function pieceElement(index) {
+    if (index === null || index === undefined || !el.board) return null;
+    const i = String(index);
+    return el.board.querySelector(
+      `.board-cell[data-index="${i}"] .piece, .board-cell[data-index="${i}"] .stone, ` +
+      `.checkers-hole[data-index="${i}"] .checkers-piece, ` +
+      `.gomoku-piece[data-index="${i}"], .xq-piece[data-index="${i}"]`
+    );
+  }
+
+  // Called before the board re-renders: snapshot the moving piece, the captured
+  // piece and (reversi) flipped stones so the new DOM can be animated into place.
+  function captureMoveAnim(move, nextBoard) {
+    if (!move || reduceMotion()) return null;
+    const board = (state.position && state.position.board) || [];
+    const fromIdx = move.from && typeof move.from.index === "number" ? move.from.index : null;
+    const toIdx = move.to && typeof move.to.index === "number"
+      ? move.to.index
+      : (move.index && typeof move.index.index === "number" ? move.index.index : null);
+    const plan = {
+      from: fromIdx,
+      to: toIdx,
+      jump: Boolean(move.jump),
+      fromRect: null,
+      ghost: null,
+      flipped: [],
+    };
+    if (fromIdx !== null && toIdx !== null) {
+      const fromNode = pieceElement(fromIdx);
+      if (fromNode) plan.fromRect = fromNode.getBoundingClientRect();
+      if (board[toIdx]) {
+        const victimNode = pieceElement(toIdx);
+        if (victimNode) plan.ghost = { at: toIdx, node: victimNode.cloneNode(true) };
+      }
+    }
+    if (state.meta && state.meta.id === "reversi" && nextBoard) {
+      for (let i = 0; i < board.length; i++) {
+        if (board[i] && nextBoard[i] && board[i] !== nextBoard[i]) {
+          plan.flipped.push({ index: i, cell: board[i] });
+        }
+      }
+    }
+    return plan;
+  }
+
+  function playMoveAnimation(plan) {
+    if (!plan) return Promise.resolve();
+    state.animating = true;
+    const tasks = [];
+    const svgBoard = el.board.querySelector(".xiangqi-svg");
+    const placed = pieceElement(plan.to);
+    if (plan.from !== null && plan.to !== null && placed) {
+      if (state.meta.id === "xiangqi" && svgBoard) {
+        tasks.push(svgSlide(placed, plan.from, plan.to, ANIM.slide));
+      } else if (plan.fromRect) {
+        tasks.push(flipSlide(placed, plan.fromRect, plan.jump));
+      }
+    } else if (plan.from === null && plan.to !== null && placed) {
+      if (state.meta.id === "gomoku") tasks.push(svgPop(placed));
+      else if (state.meta.id === "connect4") tasks.push(dropIn(placed));
+      else tasks.push(popIn(placed));
+    }
+    if (plan.ghost) tasks.push(playGhost(plan.ghost, svgBoard));
+    for (const f of plan.flipped) tasks.push(playFlip(f));
+    return Promise.all(tasks).then(
+      () => { state.animating = false; },
+      () => { state.animating = false; }
+    );
+  }
+
+  function flipSlide(node, fromRect, jump) {
+    const to = node.getBoundingClientRect();
+    const dx = fromRect.left + fromRect.width / 2 - (to.left + to.width / 2);
+    const dy = fromRect.top + fromRect.height / 2 - (to.top + to.height / 2);
+    if (!dx && !dy) return Promise.resolve();
+    const lift = Math.max(16, Math.abs(dx) * 0.22, Math.abs(dy) * 0.22);
+    const frames = jump
+      ? [
+          { transform: `translate(${dx}px, ${dy}px)` },
+          { transform: `translate(${dx / 2}px, ${dy / 2 - lift}px)`, offset: 0.5 },
+          { transform: "translate(0, 0)" },
+        ]
+      : [
+          { transform: `translate(${dx}px, ${dy}px)` },
+          { transform: "translate(0, 0)" },
+        ];
+    return node
+      .animate(frames, {
+        duration: jump ? ANIM.jump : ANIM.slide,
+        easing: jump ? "ease-in-out" : "cubic-bezier(0.22, 0.72, 0.28, 1)",
+      })
+      .finished.catch(() => {});
+  }
+
+  // SVG pieces carry their position in a translate() attribute; tween it directly.
+  function svgSlide(node, fromIdx, toIdx, ms) {
+    const a = xqPoint(fromIdx);
+    const b = xqPoint(toIdx);
+    return new Promise((resolve) => {
+      const start = performance.now();
+      const tick = (now) => {
+        const t = Math.min(1, (now - start) / ms);
+        const e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        node.setAttribute("transform", `translate(${a.x + (b.x - a.x) * e} ${a.y + (b.y - a.y) * e})`);
+        if (t < 1) requestAnimationFrame(tick);
+        else {
+          node.setAttribute("transform", `translate(${b.x} ${b.y})`);
+          resolve();
+        }
+      };
+      requestAnimationFrame(tick);
+    });
+  }
+
+  function svgPop(node) {
+    const m = (node.getAttribute("transform") || "").match(/translate\(\s*([-\d.]+)[ ,]+([-\d.]+)\s*\)/);
+    if (!m) return Promise.resolve();
+    const x = Number(m[1]);
+    const y = Number(m[2]);
+    return new Promise((resolve) => {
+      const start = performance.now();
+      const tick = (now) => {
+        const t = Math.min(1, (now - start) / (ANIM.pop + 50));
+        const c = 1.7; // ease-out-back: slight overshoot
+        const e = 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2);
+        node.setAttribute("transform", `translate(${x} ${y}) scale(${Math.max(0.08, e)})`);
+        if (t < 1) requestAnimationFrame(tick);
+        else {
+          node.setAttribute("transform", `translate(${x} ${y})`);
+          resolve();
+        }
+      };
+      requestAnimationFrame(tick);
+    });
+  }
+
+  function popIn(node) {
+    return node
+      .animate(
+        [
+          { transform: "scale(0.35)", opacity: 0.35 },
+          { transform: "scale(1)", opacity: 1 },
+        ],
+        { duration: ANIM.pop, easing: "cubic-bezier(0.22, 1.2, 0.36, 1)" }
+      )
+      .finished.catch(() => {});
+  }
+
+  function dropIn(node) {
+    return node
+      .animate(
+        [
+          { transform: "translateY(-85%)", opacity: 0.55, easing: "cubic-bezier(0.4, 0, 0.9, 0.6)" },
+          { transform: "translateY(5%)", opacity: 1, easing: "cubic-bezier(0.2, 0.7, 0.3, 1)" },
+          { transform: "translateY(0)" },
+        ],
+        { duration: ANIM.drop }
+      )
+      .finished.catch(() => {});
+  }
+
+  function playGhost(ghost, svgBoard) {
+    const node = ghost.node;
+    if (svgBoard && node.namespaceURI === "http://www.w3.org/2000/svg") {
+      svgBoard.appendChild(node);
+      const m = (node.getAttribute("transform") || "").match(/translate\(\s*([-\d.]+)[ ,]+([-\d.]+)\s*\)/);
+      const x = m ? Number(m[1]) : 0;
+      const y = m ? Number(m[2]) : 0;
+      return new Promise((resolve) => {
+        const start = performance.now();
+        const tick = (now) => {
+          const t = Math.min(1, (now - start) / ANIM.ghost);
+          const e = 1 - Math.pow(1 - t, 2);
+          node.setAttribute("transform", `translate(${x} ${y}) scale(${1 - 0.42 * e})`);
+          node.setAttribute("opacity", String(1 - e));
+          if (t < 1) requestAnimationFrame(tick);
+          else {
+            node.remove();
+            resolve();
+          }
+        };
+        requestAnimationFrame(tick);
+      });
+    }
+    const cell = el.board.querySelector(
+      `.board-cell[data-index="${ghost.at}"], .checkers-hole[data-index="${ghost.at}"]`
+    );
+    if (!cell) return Promise.resolve();
+    const wrap = document.createElement("div");
+    wrap.className = "board-ghost";
+    wrap.appendChild(node);
+    cell.appendChild(wrap);
+    return wrap
+      .animate(
+        [
+          { opacity: 1, transform: "scale(1)" },
+          { opacity: 0, transform: "scale(0.5)" },
+        ],
+        { duration: ANIM.ghost, easing: "cubic-bezier(0.3, 0, 0.4, 1)" }
+      )
+      .finished.then(() => wrap.remove())
+      .catch(() => wrap.remove());
+  }
+
+  // Reversi: old-color stone shrinks away while the flipped stone grows in.
+  function playFlip(f) {
+    const cell = el.board.querySelector(`.board-cell[data-index="${f.index}"]`);
+    const stone = cell && cell.querySelector(".stone");
+    if (!cell || !stone) return Promise.resolve();
+    const wrap = document.createElement("div");
+    wrap.className = "board-ghost";
+    wrap.appendChild(pieceNode(f.cell));
+    cell.appendChild(wrap);
+    const grow = stone.animate(
+      [
+        { transform: "scaleX(0)", offset: 0 },
+        { transform: "scaleX(0)", offset: 0.5 },
+        { transform: "scaleX(1)", offset: 1 },
+      ],
+      { duration: ANIM.flip, easing: "ease-in-out" }
+    );
+    const shrink = wrap.animate(
+      [
+        { transform: "scaleX(1)", offset: 0 },
+        { transform: "scaleX(1)", offset: 0.5 },
+        { transform: "scaleX(0)", offset: 1 },
+      ],
+      { duration: ANIM.flip, easing: "ease-in-out" }
+    );
+    return Promise.all([grow.finished, shrink.finished])
+      .then(() => wrap.remove())
+      .catch(() => wrap.remove());
+  }
+
   function jungleClass(row, col) {
     const idx = row * 7 + col;
     if ((row >= 3 && row <= 5) && [1, 2, 4, 5].includes(col)) return "water";
@@ -399,9 +642,14 @@
       const stone = board[index];
       if (!stone) continue;
       const p = gomokuPoint(index);
-      const group = svgNode("g", { class: `gomoku-piece ${stone}`, filter: "url(#gomoku-shadow)" });
-      group.appendChild(svgNode("circle", { cx: p.x, cy: p.y, r: 22, fill: stone === "b" ? "url(#gomoku-black)" : "url(#gomoku-white)" }));
-      group.appendChild(svgNode("circle", { cx: p.x - 6, cy: p.y - 7, r: 5.5, fill: "rgba(255,255,255,0.22)" }));
+      const group = svgNode("g", {
+        class: `gomoku-piece ${stone}`,
+        filter: "url(#gomoku-shadow)",
+        transform: `translate(${p.x} ${p.y})`,
+        "data-index": String(index),
+      });
+      group.appendChild(svgNode("circle", { cx: 0, cy: 0, r: 22, fill: stone === "b" ? "url(#gomoku-black)" : "url(#gomoku-white)" }));
+      group.appendChild(svgNode("circle", { cx: -6, cy: -7, r: 5.5, fill: "rgba(255,255,255,0.22)" }));
       svg.appendChild(group);
     }
 
@@ -639,6 +887,7 @@
         class: `xq-piece ${cell[0] === "r" ? "red" : "black"}${state.selected === index ? " selected" : ""}`,
         transform: `translate(${p.x} ${p.y})`,
         filter: "url(#xq-piece-shadow)",
+        "data-index": String(index),
       });
       group.appendChild(svgNode("circle", { r: 43, class: "xq-piece-disc" }));
       group.appendChild(svgNode("circle", { r: 36, class: "xq-piece-ring" }));
@@ -966,7 +1215,7 @@
   }
 
   async function onBoardClick(index) {
-    if (state.busy || !state.position || isFinished(state.position.status)) return;
+    if (state.busy || state.animating || !state.position || isFinished(state.position.status)) return;
     const cell = state.position.board[index] || "";
     if (placementGame()) {
       let move = null;
@@ -996,7 +1245,7 @@
   }
 
   async function onCheckerClick(index) {
-    if (state.busy || !state.position || isFinished(state.position.status)) return;
+    if (state.busy || state.animating || !state.position || isFinished(state.position.status)) return;
     const cell = state.position.board[index] || "";
     if (legalTarget(index)) {
       const move = state.legal.find((m) => m.from && m.to && m.from.index === state.selected && m.to.index === index);
@@ -1035,6 +1284,7 @@
         position: positionPayload(state.position),
         move: moveInput(move),
       });
+      const anim = captureMoveAnim(data.move, data.position.board);
       state.position = data.position;
       state.legal = data.position.legalMoves || [];
       state.lastMove = data.move;
@@ -1042,6 +1292,7 @@
       state.busy = false;
       saveRecord();
       render();
+      await playMoveAnimation(anim);
       if (!isFinished(data.position.status)) await aiTurn();
     } catch (err) {
       state.undoStack.pop();
@@ -1074,6 +1325,7 @@
         position: positionPayload(state.position),
         move: moveInput(result.move),
       });
+      const anim = captureMoveAnim(data.move, data.position.board);
       state.position = data.position;
       state.legal = data.position.legalMoves || [];
       state.lastMove = data.move;
@@ -1082,6 +1334,7 @@
       state.aiDepth = 0;
       saveRecord();
       render();
+      await playMoveAnimation(anim);
       if (isFinished(data.position.status)) {
         showToast(statusText(data.position.status));
       }
@@ -1190,7 +1443,7 @@
   }
 
   function undo() {
-    if (state.busy) return;
+    if (state.busy || state.animating) return;
     if (!state.undoStack.length) return;
     let snap = state.undoStack.pop();
     state.position = snap.position;

@@ -1175,6 +1175,18 @@ td code { white-space: nowrap; }
 .stone.y { background: radial-gradient(circle at 34% 28%, #ffe68f, #e3a917 66%); }
 .board-grid.connect4 .stone { width: 74%; height: 74%; z-index: 2; }
 
+/* overlay used by capture / flip animations (see play.js) */
+.board-ghost {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.board-ghost .piece,
+.board-ghost .stone { position: relative; }
+
 .checkers-board { width: 100%; max-width: 620px; height: auto; display: block; margin: 0 auto; touch-action: manipulation; }
 .checkers-hole { fill: rgba(9, 35, 25, 0.55); stroke: rgba(255, 255, 255, 0.22); stroke-width: 1; cursor: pointer; }
 .checkers-hole.goal-red { fill: rgba(170, 45, 45, 0.5); }

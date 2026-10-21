@@ -248,6 +248,14 @@ func (g *Game) searchBuiltin(ctx context.Context, pos game.Position, opts game.S
 	deadline := start.Add(limit)
 	nodes := int64(0)
 	timedOut := false
+	var rootAcc *nnue.Accumulator
+	if g.nnue != nil {
+		rootAcc, _ = g.nnue.NewAccumulator(nnuePieces(st.Board))
+	}
+	evalCache := make(map[uint64]int)
+	tables := &searchTables{eval: evalCache, tt: make(map[uint64]ttEntry)}
+	var rootPieces [Size]int
+	nnuePiecesInto(st.Board, &rootPieces)
 
 	orderMoves(st, rootMoves)
 	best := rootMoves[0]
@@ -264,7 +272,8 @@ func (g *Game) searchBuiltin(ctx context.Context, pos game.Position, opts game.S
 		complete := true
 		for i, m := range rootMoves {
 			child := makeMove(st, m)
-			score := -g.negamax(child, d-1, -beta, -alpha, 1, &nodes, deadline, ctx, &timedOut)
+			childAcc := nextAccumulator(g.nnue, rootAcc, &rootPieces, child.Board)
+			score := -g.negamax(child, d-1, -beta, -alpha, 1, &nodes, deadline, ctx, &timedOut, childAcc, tables)
 			if timedOut {
 				complete = false
 				break
@@ -317,8 +326,13 @@ func (g *Game) searchBuiltin(ctx context.Context, pos game.Position, opts game.S
 	return result, nil
 }
 
-func (g *Game) negamax(st *State, depth, alpha, beta, ply int, nodes *int64, deadline time.Time, ctx context.Context, timedOut *bool) int {
+func (g *Game) negamax(st *State, depth, alpha, beta, ply int, nodes *int64, deadline time.Time, ctx context.Context, timedOut *bool, acc *nnue.Accumulator, tables *searchTables) int {
 	*nodes++
+	key := stateKey(st)
+	alpha0 := alpha
+	if score, ok := tables.probe(key, depth, alpha, beta); ok {
+		return score
+	}
 	if *nodes&1023 == 0 && (time.Now().After(deadline) || ctx.Err() != nil) {
 		*timedOut = true
 		return 0
@@ -331,15 +345,23 @@ func (g *Game) negamax(st *State, depth, alpha, beta, ply int, nodes *int64, dea
 		return -mateScore + ply
 	}
 	if depth <= 0 {
-		return g.quiesce(st, alpha, beta, ply, nodes, deadline, ctx, timedOut)
+		return g.quiesce(st, alpha, beta, ply, nodes, deadline, ctx, timedOut, acc, tables)
+	}
+	var oldPieces [Size]int
+	nnuePiecesInto(st.Board, &oldPieces)
+	if entry, ok := tables.tt[key]; ok && (entry.best != move{}) {
+		moves = moveToFront(moves, entry.best)
 	}
 	orderMoves(st, moves)
 	best := -mateScore * 2
+	bestMove := move{}
 	for _, m := range moves {
 		child := makeMove(st, m)
-		score := -g.negamax(child, depth-1, -beta, -alpha, ply+1, nodes, deadline, ctx, timedOut)
+		childAcc := nextAccumulator(g.nnue, acc, &oldPieces, child.Board)
+		score := -g.negamax(child, depth-1, -beta, -alpha, ply+1, nodes, deadline, ctx, timedOut, childAcc, tables)
 		if score > best {
 			best = score
+			bestMove = m
 		}
 		if score > alpha {
 			alpha = score
@@ -351,23 +373,26 @@ func (g *Game) negamax(st *State, depth, alpha, beta, ply int, nodes *int64, dea
 			break
 		}
 	}
+	if !*timedOut {
+		tables.store(key, depth, best, alpha0, beta, bestMove)
+	}
 	return best
 }
 
-func (g *Game) quiesce(st *State, alpha, beta, ply int, nodes *int64, deadline time.Time, ctx context.Context, timedOut *bool) int {
+func (g *Game) quiesce(st *State, alpha, beta, ply int, nodes *int64, deadline time.Time, ctx context.Context, timedOut *bool, acc *nnue.Accumulator, tables *searchTables) int {
 	*nodes++
 	if *nodes&1023 == 0 && (time.Now().After(deadline) || ctx.Err() != nil) {
 		*timedOut = true
 		return 0
 	}
 	if st.Halfmove >= 120 || ply >= 24 {
-		return g.evaluateLeaf(st)
+		return g.evaluateLeaf(st, acc, tables)
 	}
 	moves := legalMoves(st)
 	if len(moves) == 0 {
 		return -mateScore + ply
 	}
-	stand := g.evaluateLeaf(st)
+	stand := g.evaluateLeaf(st, acc, tables)
 	if !inCheck(st, st.Turn) {
 		if stand >= beta {
 			return stand
@@ -387,10 +412,13 @@ func (g *Game) quiesce(st *State, alpha, beta, ply int, nodes *int64, deadline t
 		moves = captures
 	}
 	orderMoves(st, moves)
+	var oldPieces [Size]int
+	nnuePiecesInto(st.Board, &oldPieces)
 	best := -mateScore * 2
 	for _, m := range moves {
 		child := makeMove(st, m)
-		score := -g.quiesce(child, -beta, -alpha, ply+1, nodes, deadline, ctx, timedOut)
+		childAcc := nextAccumulator(g.nnue, acc, &oldPieces, child.Board)
+		score := -g.quiesce(child, -beta, -alpha, ply+1, nodes, deadline, ctx, timedOut, childAcc, tables)
 		if *timedOut {
 			break
 		}
@@ -410,22 +438,140 @@ func (g *Game) quiesce(st *State, alpha, beta, ply int, nodes *int64, deadline t
 	return best
 }
 
-func (g *Game) evaluateLeaf(st *State) int {
-	if g.nnue == nil {
+type ttEntry struct {
+	depth int
+	score int
+	flag  uint8 // 0 exact, 1 lower, 2 upper
+	best  move
+}
+
+type searchTables struct {
+	eval map[uint64]int
+	tt   map[uint64]ttEntry
+}
+
+func (t *searchTables) probe(key uint64, depth, alpha, beta int) (int, bool) {
+	if t == nil {
+		return 0, false
+	}
+	entry, ok := t.tt[key]
+	if !ok || entry.depth < depth {
+		return 0, false
+	}
+	switch entry.flag {
+	case 0:
+		return entry.score, true
+	case 1:
+		if entry.score >= beta {
+			return entry.score, true
+		}
+	case 2:
+		if entry.score <= alpha {
+			return entry.score, true
+		}
+	}
+	return 0, false
+}
+
+func (t *searchTables) store(key uint64, depth, score, alpha, beta int, best move) {
+	if t == nil {
+		return
+	}
+	flag := uint8(0)
+	if score <= alpha {
+		flag = 2
+	} else if score >= beta {
+		flag = 1
+	}
+	t.tt[key] = ttEntry{depth: depth, score: score, flag: flag, best: best}
+}
+
+func (g *Game) evaluateLeaf(st *State, acc *nnue.Accumulator, tables *searchTables) int {
+	if g.nnue == nil || acc == nil {
 		return evaluate(st)
 	}
-	board := make([]string, Size)
-	for i, p := range st.Board {
-		if p == 0 {
-			continue
+	var key uint64
+	if tables != nil {
+		key = stateKey(st)
+		if score, ok := tables.eval[key]; ok {
+			return score
 		}
-		board[i] = colorLetter(colorOf(p)) + strings.ToUpper(pieceLetter(absPiece(p)))
 	}
-	score, err := g.nnue.Evaluate(board, colorString(st.Turn))
+	score, err := g.nnue.EvaluateAccumulator(acc, colorString(st.Turn))
 	if err != nil {
 		return evaluate(st)
 	}
+	if tables != nil {
+		tables.eval[key] = score
+	}
 	return score
+}
+
+func stateKey(st *State) uint64 {
+	h := uint64(14695981039346656037)
+	mix := func(v byte) {
+		h ^= uint64(v)
+		h *= 1099511628211
+	}
+	for _, p := range st.Board {
+		mix(byte(p))
+	}
+	mix(byte(st.Turn))
+	return h
+}
+
+func nnueCode(p int8) int {
+	base := 8
+	if p > 0 {
+		base = 0
+	}
+	var code int
+	switch absPiece(p) {
+	case Rook:
+		code = 1
+	case Advisor:
+		code = 2
+	case Cannon:
+		code = 3
+	case Pawn:
+		code = 4
+	case Knight:
+		code = 5
+	case Bishop:
+		code = 6
+	case King:
+		code = 7
+	}
+	return base + code
+}
+
+func nnuePieces(board [Size]int8) []int {
+	out := make([]int, Size)
+	for i, p := range board {
+		if p != 0 {
+			out[i] = nnueCode(p)
+		}
+	}
+	return out
+}
+
+func nnuePiecesInto(board [Size]int8, out *[Size]int) {
+	for i, p := range board {
+		if p == 0 {
+			out[i] = 0
+		} else {
+			out[i] = nnueCode(p)
+		}
+	}
+}
+
+func nextAccumulator(n *nnue.Network, acc *nnue.Accumulator, oldPieces *[Size]int, board [Size]int8) *nnue.Accumulator {
+	if n == nil || acc == nil {
+		return nil
+	}
+	var newPieces [Size]int
+	nnuePiecesInto(board, &newPieces)
+	return n.UpdateAccumulator(acc, oldPieces[:], newPieces[:])
 }
 
 func evaluate(st *State) int {

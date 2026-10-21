@@ -40,4 +40,36 @@ func TestLoadAndEvaluate(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("simple eval=%d", s)
+
+	inc := append([]string(nil), board...)
+	inc[27], inc[36] = "", "rP"
+	oldPieces := make([]int, 90)
+	newPieces := make([]int, 90)
+	for i, cell := range board {
+		oldPieces[i], _ = pieceCode(cell)
+	}
+	for i, cell := range inc {
+		newPieces[i], _ = pieceCode(cell)
+	}
+	fullAcc, err := n.NewAccumulator(newPieces)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startAcc, err := n.NewAccumulator(oldPieces)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := n.UpdateAccumulator(startAcc, oldPieces, newPieces)
+	fullEval, err := n.EvaluateAccumulator(fullAcc, "w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedEval, err := n.EvaluateAccumulator(updated, "w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fullEval != updatedEval {
+		t.Fatalf("incremental eval = %d, full = %d", updatedEval, fullEval)
+	}
+	t.Logf("incremental eval=%d", updatedEval)
 }

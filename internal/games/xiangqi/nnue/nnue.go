@@ -127,64 +127,12 @@ func (n *Network) Evaluate(board []string, turn string) (int, error) {
 		}
 		pieces[i] = code
 	}
-	side := 0
-	if turn == "b" {
-		side = 1
+	acc, err := n.NewAccumulator(pieces)
+	if err != nil {
+		return 0, err
 	}
-	count := 0
-	for _, p := range pieces {
-		if p != 0 {
-			count++
-		}
-	}
-	if count == 0 {
-		return 0, errors.New("nnue: empty board")
-	}
-	bucket := (count - 1) / 4
-	if bucket >= layerStacks {
-		bucket = layerStacks - 1
-	}
-
-	var acc [2][ftHalf]int32
-	var psqt [2][psqtBuckets]int32
-	for perspective := 0; perspective < 2; perspective++ {
-		for i := 0; i < ftHalf; i++ {
-			acc[perspective][i] = int32(n.bias[i])
-		}
-		ksq, ab := kingAndAB(pieces, perspective)
-		if ksq < 0 {
-			return 0, errors.New("nnue: missing king")
-		}
-		for sq, pc := range pieces {
-			if pc == 0 {
-				continue
-			}
-			idx := featureIndex(sq, pc, ksq, ab, perspective)
-			base := idx * ftHalf
-			for j := 0; j < ftHalf; j++ {
-				acc[perspective][j] += int32(n.weights[base+j])
-			}
-			pbase := idx * psqtBuckets
-			for j := 0; j < psqtBuckets; j++ {
-				psqt[perspective][j] += n.psqt[pbase+j]
-			}
-		}
-	}
-
-	var transformed [ftHalf]uint8
-	for p := 0; p < 2; p++ {
-		offset := (ftHalf / 2) * p
-		for j := 0; j < ftHalf/2; j++ {
-			a := clamp(int(acc[p][j]), 0, 127)
-			b := clamp(int(acc[p][j+ftHalf/2]), 0, 127)
-			transformed[offset+j] = uint8(a * b / 128)
-		}
-	}
-	psqtEval := int32((psqt[side][bucket] - psqt[1-side][bucket]) / 2)
-	positional := n.layers[bucket].propagate(transformed)
-	return int((psqtEval + positional) / outputScale), nil
+	return n.EvaluateAccumulator(acc, turn)
 }
-
 func kingAndAB(pieces []int, perspective int) (int, int) {
 	king := -1
 	a, b := 0, 0

@@ -375,28 +375,35 @@ func isAttacked(board [Size]int8, sq int, by int8) bool {
 	return false
 }
 
-func orderMoves(st *State, moves []move, history *[2][Size][Size]int32) {
+func orderMoves(st *State, moves []move, history *[2][Size][Size]int32, killer0, killer1 move) {
 	for i := 1; i < len(moves); i++ {
 		m := moves[i]
-		score := moveScore(st, m, history)
+		score := moveScore(st, m, history, killer0, killer1)
 		j := i - 1
-		for ; j >= 0 && moveScore(st, moves[j], history) < score; j-- {
+		for ; j >= 0 && moveScore(st, moves[j], history, killer0, killer1) < score; j-- {
 			moves[j+1] = moves[j]
 		}
 		moves[j+1] = m
 	}
 }
 
-func moveScore(st *State, m move, history *[2][Size][Size]int32) int {
+func moveScore(st *State, m move, history *[2][Size][Size]int32, killer0, killer1 move) int {
 	score := 0
 	if target := st.Board[m.To]; target != 0 {
 		score += 1000 + pieceValue[absPiece(target)]*10 - pieceValue[absPiece(st.Board[m.From])]
-	} else if history != nil {
-		side := 0
-		if st.Turn == Black {
-			side = 1
+	} else {
+		if m == killer0 {
+			score += 800
+		} else if m == killer1 {
+			score += 700
 		}
-		score += int(history[side][m.From][m.To])
+		if history != nil {
+			side := 0
+			if st.Turn == Black {
+				side = 1
+			}
+			score += int(history[side][m.From][m.To])
+		}
 	}
 	// Prefer central and forward moves slightly.
 	file := m.To % Files

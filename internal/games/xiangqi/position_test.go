@@ -22,7 +22,7 @@ func perftPosition(p *Position, depth int) int {
 func TestPositionPerft(t *testing.T) {
 	st, _ := parseFEN("rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1")
 	p := newPosition(st)
-	for d := 1; d <= 3; d++ {
+	for d := 1; d <= 4; d++ {
 		if got, want := perftPosition(p, d), perft(st, d); got != want {
 			t.Fatalf("position perft(%d) = %d, want %d", d, got, want)
 		}

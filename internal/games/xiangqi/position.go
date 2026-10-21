@@ -458,10 +458,24 @@ func (p *Position) legalMoves() []move {
 		idx = int(King) + 8
 	}
 	king := p.pieces[idx].lsb()
-	var kingRays bitboard
+	var unsafeFrom, kingRays bitboard
 	if king >= 0 {
 		for d := 0; d < 4; d++ {
 			kingRays = kingRays.or(rays[d][king])
+		}
+		unsafeFrom = kingRays
+		knightIdx := 8 - int(Knight)
+		if p.Turn == Black {
+			knightIdx = int(Knight) + 8
+		}
+		knights := knightAttackers[king].and(p.pieces[knightIdx])
+		for !knights.isZero() {
+			from := knights.lsb()
+			knights.clear(from)
+			leg := knightLeg(from, king)
+			if p.Board[leg] != 0 {
+				unsafeFrom.set(leg)
+			}
 		}
 	}
 	moves := p.pseudoMoves()
@@ -469,7 +483,7 @@ func (p *Position) legalMoves() []move {
 	out := moves[:0]
 	for _, m := range moves {
 		pc := p.Board[m.From]
-		if !check && absPiece(pc) != King && !kingRays.has(m.From) {
+		if !check && absPiece(pc) != King && !unsafeFrom.has(m.From) && !kingRays.has(m.To) {
 			out = append(out, m)
 			continue
 		}

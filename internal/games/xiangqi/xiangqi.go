@@ -271,8 +271,11 @@ func (g *Game) searchBuiltin(ctx context.Context, pos game.Position, opts game.S
 	if g.nnue != nil {
 		rootAcc, _ = g.nnue.NewAccumulator(nnuePieces(st.Board))
 	}
-	evalCache := make(map[uint64]int)
-	tables := &searchTables{eval: evalCache, tt: make(map[uint64]ttEntry)}
+	tables := newSearchTables()
+	splitTables := make([]*searchTables, g.threads)
+	for i := range splitTables {
+		splitTables[i] = newSearchTables()
+	}
 	orderMoves(st, rootMoves)
 	best := rootMoves[0]
 	bestScore := 0
@@ -288,7 +291,7 @@ func (g *Game) searchBuiltin(ctx context.Context, pos game.Position, opts game.S
 		complete := true
 		if g.threads > 1 && d >= 3 && len(rootMoves) > 1 {
 			var pn int64
-			localBest, localScore, pn, complete = g.searchRootSplit(rootMoves, st, rootAcc, d, deadline, ctx)
+			localBest, localScore, pn, complete = g.searchRootSplit(rootMoves, st, rootAcc, d, deadline, ctx, splitTables)
 			nodes += pn
 			if !complete {
 				timedOut = true
@@ -352,7 +355,7 @@ func (g *Game) searchBuiltin(ctx context.Context, pos game.Position, opts game.S
 	return result, nil
 }
 
-func (g *Game) searchRootSplit(rootMoves []move, st *State, rootAcc *nnue.Accumulator, depth int, deadline time.Time, ctx context.Context) (move, int, int64, bool) {
+func (g *Game) searchRootSplit(rootMoves []move, st *State, rootAcc *nnue.Accumulator, depth int, deadline time.Time, ctx context.Context, splitTables []*searchTables) (move, int, int64, bool) {
 	first := rootMoves[0]
 	firstChild := makeMove(st, first)
 	firstAcc := nextAccumulator(g.nnue, rootAcc, st.Board, first)
@@ -569,6 +572,10 @@ type ttEntry struct {
 type searchTables struct {
 	eval map[uint64]int
 	tt   map[uint64]ttEntry
+}
+
+func newSearchTables() *searchTables {
+	return &searchTables{eval: make(map[uint64]int), tt: make(map[uint64]ttEntry)}
 }
 
 func (t *searchTables) probe(key uint64, depth, alpha, beta int) (int, bool) {

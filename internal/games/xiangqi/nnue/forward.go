@@ -31,6 +31,10 @@ func transposeFC0(l layer) []int8 {
 }
 
 func (s stack) forwardFC0(input [ftHalf]uint8, out []int32) {
+	if useAVX2 && len(s.fc0.weights) == ftHalf*(fc0Outputs+1) && len(s.fc0.bias) >= fc0Outputs+1 && len(out) >= fc0Outputs+1 {
+		fc0AVX2(&input[0], &s.fc0.weights[0], &s.fc0.bias[0], &out[0])
+		return
+	}
 	copy(out[:s.fc0.out], s.fc0.bias)
 	for i, v := range input {
 		if v == 0 {

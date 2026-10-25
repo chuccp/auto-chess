@@ -7,6 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -29,6 +32,11 @@ func newTestServer(t *testing.T) *httptest.Server {
 
 func newTestServerWithContext(t *testing.T, contextPath string) *httptest.Server {
 	t.Helper()
+	return newTestServerWithOptions(t, contextPath, filepath.Join(t.TempDir(), "feedback.jsonl"))
+}
+
+func newTestServerWithOptions(t *testing.T, contextPath, feedbackFile string) *httptest.Server {
+	t.Helper()
 	cfg := config.LoadAutoConfig()
 	cfg.Put("web.server.port", 19009)
 	if contextPath != "" {
@@ -40,7 +48,7 @@ func newTestServerWithContext(t *testing.T, contextPath string) *httptest.Server
 	}
 	app := wf.NewBuilder(cfg).
 		Filter(&api.CORSFilter{}).
-		Rest(&api.Controller{Registry: registry.New(), Renderer: renderer}).
+		Rest(&api.Controller{Registry: registry.New(), Renderer: renderer, FeedbackFile: feedbackFile}).
 		Build()
 	handler := app.GetHandler()
 	if handler == nil {
@@ -419,7 +427,7 @@ func TestDefaultThemeAndLanguageSwitch(t *testing.T) {
 	body, _ := io.ReadAll(res.Body)
 	res.Body.Close()
 	page := string(body)
-	for _, want := range []string{`data-theme="light"`, `id="theme-toggle"`, `class="lang-btn"`, `href="./?lang=en"`} {
+	for _, want := range []string{`data-theme="light"`, `id="theme-toggle"`, `class="lang-btn"`, `href="./?lang=en"`, `href="./feedback"`} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("default page missing %q", want)
 		}
@@ -465,10 +473,12 @@ func TestCORSAllRoutes(t *testing.T) {
 		"/games/xiangqi",
 		"/play",
 		"/playground",
+		"/feedback",
 		"/assets/app.css",
 		"/assets/site.js",
 		"/assets/play.js",
 		"/assets/playground.js",
+		"/assets/feedback.js",
 		"/api/v1/health",
 		"/api/v1/games",
 		"/api/v1/games/xiangqi",
@@ -479,6 +489,9 @@ func TestCORSAllRoutes(t *testing.T) {
 		"/api/v1/games/xiangqi/apply-move",
 		"/api/v1/games/xiangqi/move/stream",
 		"/api/v1/legal-moves",
+		"/api/v1/captcha",
+		"/api/v1/captcha/abc/image",
+		"/api/v1/feedback",
 	}
 	for _, path := range paths {
 		req, err := http.NewRequest(http.MethodOptions, srv.URL+path, nil)
@@ -526,6 +539,8 @@ func TestServerRenderedPages(t *testing.T) {
 		{"/play", "SSE · 思考过程"},
 		{"/play", "普通 · 一次返回"},
 		{"/playground", "请求调试器"},
+		{"/feedback", "意见反馈"},
+		{"/feedback", `id="feedback-form"`},
 	}
 	for _, tc := range cases {
 		res := doRequest(t, http.MethodGet, srv.URL+tc.path, nil)
@@ -552,7 +567,7 @@ func TestServerRenderedPages(t *testing.T) {
 		t.Fatalf("notfound status=%d body=%s", res.StatusCode, data)
 	}
 
-	for _, asset := range []string{"/assets/app.css", "/assets/site.js", "/assets/play.js", "/assets/playground.js"} {
+	for _, asset := range []string{"/assets/app.css", "/assets/site.js", "/assets/play.js", "/assets/playground.js", "/assets/feedback.js"} {
 		res := doRequest(t, http.MethodGet, srv.URL+asset, nil)
 		res.Body.Close()
 		if res.StatusCode != 200 {
@@ -772,5 +787,294 @@ func TestApplyMoveAcceptsReturnedMove(t *testing.T) {
 	res, out := postJSON(t, srv.URL+"/api/v1/apply-move", body)
 	if res.StatusCode != 200 || out["ok"] != true {
 		t.Fatalf("applying a returned move failed: status=%d body=%v", res.StatusCode, out)
+	}
+}
+
+type captchaView struct {
+	ID     string `json:"id"`
+	Count  int    `json:"count"`
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
+	Prompt string `json:"prompt"`
+	Tiles  []struct {
+		X int `json:"x"`
+		Y int `json:"y"`
+		W int `json:"w"`
+		H int `json:"h"`
+	} `json:"tiles"`
+}
+
+func errorCode(out map[string]any) string {
+	if detail, ok := out["error"].(map[string]any); ok {
+		if code, ok := detail["code"].(string); ok {
+			return code
+		}
+	}
+	return ""
+}
+
+func issueCaptcha(t *testing.T, srv *httptest.Server) captchaView {
+	t.Helper()
+	res := doRequest(t, http.MethodGet, srv.URL+"/api/v1/captcha?lang=zh", nil)
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("captcha status = %d", res.StatusCode)
+	}
+	if got := res.Header.Get("Cache-Control"); !strings.Contains(got, "no-store") {
+		t.Fatalf("captcha cache control = %q", got)
+	}
+	var payload struct {
+		OK   bool        `json:"ok"`
+		Data captchaView `json:"data"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.OK || payload.Data.ID == "" {
+		t.Fatalf("captcha response = %+v", payload)
+	}
+	if payload.Data.Count != 3 {
+		t.Fatalf("captcha count = %d, want 3", payload.Data.Count)
+	}
+	if len(payload.Data.Tiles) != 8 {
+		t.Fatalf("captcha tiles = %d, want 8", len(payload.Data.Tiles))
+	}
+	return payload.Data
+}
+
+func fetchCaptchaSVG(t *testing.T, srv *httptest.Server, id string) string {
+	t.Helper()
+	res := doRequest(t, http.MethodGet, srv.URL+"/api/v1/captcha/"+url.PathEscape(id)+"/image", nil)
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("captcha image status = %d", res.StatusCode)
+	}
+	if got := res.Header.Get("Content-Type"); !strings.Contains(got, "image/svg+xml") {
+		t.Fatalf("captcha image content type = %q", got)
+	}
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+var (
+	svgGlyphRE  = regexp.MustCompile(`<text[^>]*>([^<]+)</text>`)
+	svgPromptRE = regexp.MustCompile(`<text[^>]*id="prompt"[^>]*>([^<]+)</text>`)
+)
+
+func captchaTargets(t *testing.T, svg string) []string {
+	t.Helper()
+	match := svgPromptRE.FindStringSubmatch(svg)
+	if match == nil {
+		t.Fatal("captcha image has no prompt")
+	}
+	text := match[1]
+	if i := strings.Index(text, "："); i >= 0 {
+		text = text[i+len("："):]
+	} else if i := strings.Index(text, ":"); i >= 0 {
+		text = text[i+1:]
+	}
+	return strings.Fields(text)
+}
+
+func captchaGlyphs(t *testing.T, svg string) []string {
+	t.Helper()
+	start := strings.Index(svg, `<g id="chars"`)
+	if start < 0 {
+		t.Fatal("captcha image has no character group")
+	}
+	rest := svg[start:]
+	end := strings.Index(rest, `</g>`)
+	if end < 0 {
+		t.Fatal("captcha character group is not closed")
+	}
+	matches := svgGlyphRE.FindAllStringSubmatch(rest[:end], -1)
+	chars := make([]string, 0, len(matches))
+	for _, match := range matches {
+		chars = append(chars, match[1])
+	}
+	return chars
+}
+
+// solveCaptcha reads the image the same way a visitor does: the prompt names
+// the characters in order, and each tile is rendered in tile-index order.
+func solveCaptcha(t *testing.T, svg string, count int) []int {
+	t.Helper()
+	targets := captchaTargets(t, svg)
+	glyphs := captchaGlyphs(t, svg)
+	if len(targets) != count {
+		t.Fatalf("prompt targets = %v, want %d", targets, count)
+	}
+	if len(glyphs) != 8 {
+		t.Fatalf("glyphs = %v, want 8", glyphs)
+	}
+	answer := make([]int, len(targets))
+	used := make(map[int]bool)
+	for i, target := range targets {
+		found := -1
+		for j, glyph := range glyphs {
+			if glyph == target && !used[j] {
+				found = j
+				break
+			}
+		}
+		if found < 0 {
+			t.Fatalf("target %q not found in %v", target, glyphs)
+		}
+		answer[i] = found
+		used[found] = true
+	}
+	return answer
+}
+
+func TestFeedbackCaptchaFlow(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "feedback.jsonl")
+	srv := newTestServerWithOptions(t, "", file)
+	defer srv.Close()
+
+	challenge := issueCaptcha(t, srv)
+	answer := solveCaptcha(t, fetchCaptchaSVG(t, srv, challenge.ID), challenge.Count)
+
+	// Validation runs before captcha verification, so this must not consume the
+	// challenge.
+	res, out := postJSON(t, srv.URL+"/api/v1/feedback", map[string]any{
+		"message":       "   ",
+		"captchaId":     challenge.ID,
+		"captchaAnswer": answer,
+	})
+	if res.StatusCode != http.StatusBadRequest || errorCode(out) != "BAD_REQUEST" {
+		t.Fatalf("empty message: status=%d body=%v", res.StatusCode, out)
+	}
+
+	wrong := append([]int(nil), answer...)
+	wrong[0], wrong[1] = wrong[1], wrong[0]
+	res, out = postJSON(t, srv.URL+"/api/v1/feedback", map[string]any{
+		"message":       "希望增加残局模式",
+		"captchaId":     challenge.ID,
+		"captchaAnswer": wrong,
+	})
+	if res.StatusCode != http.StatusBadRequest || errorCode(out) != "CAPTCHA_INVALID" {
+		t.Fatalf("wrong order: status=%d body=%v", res.StatusCode, out)
+	}
+
+	// A challenge is consumed by the first verification attempt, even a failed
+	// one; the correct answer cannot be replayed.
+	res, out = postJSON(t, srv.URL+"/api/v1/feedback", map[string]any{
+		"message":       "希望增加残局模式",
+		"captchaId":     challenge.ID,
+		"captchaAnswer": answer,
+	})
+	if res.StatusCode != http.StatusBadRequest || errorCode(out) != "CAPTCHA_EXPIRED" {
+		t.Fatalf("replay: status=%d body=%v", res.StatusCode, out)
+	}
+
+	challenge = issueCaptcha(t, srv)
+	answer = solveCaptcha(t, fetchCaptchaSVG(t, srv, challenge.ID), challenge.Count)
+	body := map[string]any{
+		"phone":         "13800138000",
+		"email":         "user@example.com",
+		"message":       "希望增加残局模式",
+		"captchaId":     challenge.ID,
+		"captchaAnswer": answer,
+	}
+	res, out = postJSON(t, srv.URL+"/api/v1/feedback", body)
+	if res.StatusCode != http.StatusOK || out["ok"] != true {
+		t.Fatalf("submit: status=%d body=%v", res.StatusCode, out)
+	}
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"13800138000", "user@example.com", "希望增加残局模式"} {
+		if !strings.Contains(string(raw), want) {
+			t.Fatalf("feedback file missing %q:\n%s", want, raw)
+		}
+	}
+	if lines := strings.Count(strings.TrimSpace(string(raw)), "\n"); lines != 0 {
+		t.Fatalf("feedback file has %d extra lines:\n%s", lines, raw)
+	}
+
+	// The consumed challenge is rejected on replay even with the right answer.
+	res, out = postJSON(t, srv.URL+"/api/v1/feedback", body)
+	if res.StatusCode != http.StatusBadRequest || errorCode(out) != "CAPTCHA_EXPIRED" {
+		t.Fatalf("success replay: status=%d body=%v", res.StatusCode, out)
+	}
+}
+
+func TestFeedbackValidationKeepsChallenge(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.Close()
+
+	challenge := issueCaptcha(t, srv)
+	answer := solveCaptcha(t, fetchCaptchaSVG(t, srv, challenge.ID), challenge.Count)
+	base := map[string]any{
+		"message":       "一条有效的反馈",
+		"captchaId":     challenge.ID,
+		"captchaAnswer": answer,
+	}
+	cases := []struct {
+		name string
+		body map[string]any
+	}{
+		{"empty message", map[string]any{"message": "", "captchaId": challenge.ID, "captchaAnswer": answer}},
+		{"bad phone", map[string]any{"message": "ok", "phone": "not-a-number", "captchaId": challenge.ID, "captchaAnswer": answer}},
+		{"bad email", map[string]any{"message": "ok", "email": "not-an-email", "captchaId": challenge.ID, "captchaAnswer": answer}},
+	}
+	for _, tc := range cases {
+		res, out := postJSON(t, srv.URL+"/api/v1/feedback", tc.body)
+		if res.StatusCode != http.StatusBadRequest || errorCode(out) != "BAD_REQUEST" {
+			t.Fatalf("%s: status=%d body=%v", tc.name, res.StatusCode, out)
+		}
+	}
+
+	// None of the validation failures consumed the challenge.
+	res, out := postJSON(t, srv.URL+"/api/v1/feedback", base)
+	if res.StatusCode != http.StatusOK || out["ok"] != true {
+		t.Fatalf("valid submission after errors: status=%d body=%v", res.StatusCode, out)
+	}
+}
+
+func TestCaptchaUnknownImage(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.Close()
+	res := doRequest(t, http.MethodGet, srv.URL+"/api/v1/captcha/does-not-exist/image", nil)
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("unknown captcha image status = %d, want 404", res.StatusCode)
+	}
+}
+
+func TestFeedbackPageBilingual(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.Close()
+	cases := []struct {
+		path string
+		want []string
+		ban  string
+	}{
+		{"/feedback", []string{"意见反馈", `id="feedback-form"`, "提交反馈"}, ""},
+		{"/feedback?lang=en", []string{"Feedback", "Submit feedback", "Security check"}, "提交反馈"},
+	}
+	for _, tc := range cases {
+		res := doRequest(t, http.MethodGet, srv.URL+tc.path, nil)
+		data, err := io.ReadAll(res.Body)
+		res.Body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("%s status = %d", tc.path, res.StatusCode)
+		}
+		page := string(data)
+		for _, want := range tc.want {
+			if !strings.Contains(page, want) {
+				t.Fatalf("%s missing %q", tc.path, want)
+			}
+		}
+		if tc.ban != "" && strings.Contains(page, tc.ban) {
+			t.Fatalf("%s still contains %q", tc.path, tc.ban)
+		}
 	}
 }

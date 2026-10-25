@@ -11,8 +11,9 @@
 - 难度 / 思考时间 / 最大深度可调
 - 支持 SSE 流式返回逐层思考过程，高难度时可观察实时进度
 - 基于 [go-web-frame](https://github.com/chuccp/go-web-frame)（路由、过滤器、配置、生命周期）
-- 内置 Go `html/template` 多页面站点：首页、接入指南、接口参考、SSE、棋种目录/详情、在线对弈、调试器
+- 内置 Go `html/template` 多页面站点：首页、接入指南、接口参考、SSE、棋种目录/详情、在线对弈、调试器、意见反馈
 - `/play` 可直接与引擎对弈，对局自动保存在浏览器，支持继续、悔棋和切换棋种
+- `/feedback` 意见反馈：手机号/邮箱选填，提交前需按图片提示依次点击正确的字；反馈可写入 MySQL / SQLite，未配置数据库时回退到本地 JSONL
 - 对弈时可选择普通 `/api/v1/move` 或 SSE `/api/v1/move/stream` 接口；SSE 模式会显示深度、节点和耗时
 - 已启用 CORS，浏览器前端可直接调用
 - 默认亮色主题；导航可切换亮色 / 深色并记住选择
@@ -20,7 +21,7 @@
 
 > 演示地址（本地服务启动后）：<http://127.0.0.1:8090/auto-chess/>
 
-> 主要页面：`/auto-chess/` 首页 · `/auto-chess/guide` 接入指南 · `/auto-chess/docs` 接口参考 · `/auto-chess/docs/stream` SSE · `/auto-chess/games` 棋种 · `/auto-chess/play` 在线对弈 · `/auto-chess/playground` 调试器
+> 主要页面：`/auto-chess/` 首页 · `/auto-chess/guide` 接入指南 · `/auto-chess/docs` 接口参考 · `/auto-chess/docs/stream` SSE · `/auto-chess/games` 棋种 · `/auto-chess/play` 在线对弈 · `/auto-chess/playground` 调试器 · `/auto-chess/feedback` 意见反馈
 
 > 这不是完整的对局平台：没有房间、账号、在线匹配或服务端会话；对弈记录仅保存在当前浏览器。
 
@@ -31,6 +32,15 @@
 要求 Go 1.26+。
 
 ```bash
+cp application.example.yml application.yml   # 按需修改端口、数据库；该文件含密码，已被 git 忽略
+go mod tidy
+go run .
+```
+
+Windows PowerShell：
+
+```powershell
+Copy-Item application.example.yml application.yml
 go mod tidy
 go run .
 ```
@@ -40,6 +50,7 @@ go run .
 - 首页：<http://127.0.0.1:8090/auto-chess/>
 - API 文档：<http://127.0.0.1:8090/auto-chess/docs>
 - 调试器：<http://127.0.0.1:8090/auto-chess/playground>
+- 意见反馈：<http://127.0.0.1:8090/auto-chess/feedback>
 - 健康检查：<http://127.0.0.1:8090/auto-chess/api/v1/health>
 - 棋种目录：<http://127.0.0.1:8090/auto-chess/api/v1/games>
 
@@ -71,6 +82,7 @@ $env:PORT=9000; $env:CONTEXT_PATH="games"; go run .
 | `/auto-chess/games/{game}` | 棋种详情：规则、坐标、初始局面、独立接口详解与示例 |
 | `/auto-chess/play` | 在线对弈：人机轮流落子、本机保存记录 |
 | `/auto-chess/playground` | 请求调试器（普通 + SSE） |
+| `/auto-chess/feedback` | 意见反馈：手机号/邮箱选填，提交前按顺序点击图片中的字 |
 
 页面数据直接来自 `internal/registry`，模板与静态资源通过 `embed` 内置，不需要单独部署前端文件。布局为响应式，对弈棋盘、侧栏和导航在手机宽度下会自动重排和缩放。
 
@@ -391,7 +403,11 @@ GET /api/v1/move/stream?payload=%7B%22game%22%3A%22gomoku%22%2C...%7D
 
 ## 配置
 
-`application.yml`：
+仓库只跟踪 `application.example.yml`；`application.yml` 含有数据库密码，已加入 `.gitignore`，首次运行时复制一份：
+
+```bash
+cp application.example.yml application.yml
+```
 
 ```yaml
 web:
@@ -400,8 +416,25 @@ web:
     contextPath: auto-chess
     max_body_size: 1048576
     read_timeout: 30
+  # 反馈存储：MySQL 或 SQLite；服务启动时自动创建 feedback 表
+  db:
+    type: mysql            # mysql | postgres | sqlite
+    host: 127.0.0.1
+    port: 3306
+    database: auto_chess
+    user: root
+    password: "change-me"
+    max_open_conns: 20
+    max_idle_conns: 10
+    conn_max_lifetime: 3600
+    # SQLite 示例：
+    # type: sqlite
+    # path: data/auto-chess.db
   log:
     level: info
+feedback:
+  # 未配置 web.db 或数据库不可用时，反馈追加写入该 JSONL 文件
+  file: data/feedback.jsonl
 engine:
   xiangqi:
     nnue: pikafish.nnue
@@ -412,6 +445,35 @@ engine:
 - `PORT`：覆盖端口
 - `CONTEXT_PATH`：覆盖 contextPath，例如 `/games` 或 `games`
 - `XIANGQI_NNUE`：覆盖中国象棋 NNUE 文件路径
+- `FEEDBACK_FILE`：覆盖未配置数据库时的反馈 JSONL 路径
+
+### 意见反馈存储
+
+`/feedback` 页面提交的反馈会写入 `web.db` 所配置的数据库（表名 `feedback`，字段 `id`、`created_at`、`phone`、`email`、`message`）。服务启动时会自动建表；MySQL 需要先建好独立的数据库：
+
+```sql
+CREATE DATABASE IF NOT EXISTS auto_chess
+  DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
+
+没有配置 `web.db` 时，退化为按行追加的 JSONL 文件；文件权限为 `0600`。
+
+反馈接口：
+
+- `GET /api/v1/captcha?lang=zh|en`：生成一次选字验证，返回 `id`、提示语和 8 个可点击区域
+- `GET /api/v1/captcha/{id}/image`：返回验证码 SVG 图片（不缓存）
+- `POST /api/v1/feedback`：提交 `phone`、`email`、`message`、`captchaId`、`captchaAnswer`
+  - `captchaAnswer` 是按顺序点击的格子下标；验证通过后才会落库
+  - 每个验证码只能使用一次，失败或过期返回 `CAPTCHA_INVALID` / `CAPTCHA_EXPIRED`
+
+查看最近反馈：
+
+```sql
+SELECT created_at, phone, email, message
+FROM auto_chess.feedback
+ORDER BY id DESC
+LIMIT 20;
+```
 
 ### Pikafish NNUE（可选）
 
@@ -472,6 +534,7 @@ go test -race -gcflags=all=-d=checkptr=0 ./...
 - 对弈页：七种棋盘渲染、人机轮流走子、SSE 思考过程、本机保存/继续/悔棋
 - 亮色/深色主题切换与中文/English 全站切换
 - 默认亮色、主题记忆、语言 cookie / `?lang=en` 与英文页面渲染测试
+- 意见反馈：验证码图片与提示一致性、按顺序选字、一次性验证、过期/错误顺序、手机号/邮箱校验、JSONL 落盘
 - 每个棋种的接口文档：字段表、请求/响应、apply-move、legal-moves、SSE、注意事项
 - SSE 事件序列（start / depth / result / done）、GET EventSource 形式、各棋种 progress 回调
 - 原生引擎搜索：Chess-3（国际象棋）与 godogpaw（中国象棋）返回合法走法、引擎名和搜索统计
@@ -485,9 +548,10 @@ go test -race -gcflags=all=-d=checkptr=0 ./...
 ```
 .
 ├── main.go                  # go-web-frame 启动入口
-├── application.yml          # 端口、日志、请求体限制
+├── application.example.yml  # 配置示例；复制为 application.yml（已忽略）
 ├── internal/
-│   ├── api/                 # 路由、CORS、JSON 响应、文档页
+│   ├── api/                 # 路由、CORS、JSON 响应、文档页、反馈接口
+│   ├── feedback/            # 选字验证码 + MySQL/SQLite/JSONL 反馈存储
 │   ├── game/                # 通用接口与 JSON 类型
 │   ├── games/
 │   │   ├── chess/           # 国际象棋：FEN + 完整规则 + Chess-3 纯 Go 引擎
@@ -501,8 +565,8 @@ go test -race -gcflags=all=-d=checkptr=0 ./...
 │   ├── engines/
 │   │   └── godogpaw/        # 纯 Go 中国象棋引擎（MIT，含 LICENSE）
 │   └── webui/               # Go html/template 多页面站点
-│       ├── templates/       # layout、首页、指南、接口、SSE、棋种、调试页
-│       ├── static/          # app.css、site.js、playground.js
+│       ├── templates/       # layout、首页、指南、接口、SSE、棋种、调试、反馈页
+│       ├── static/          # app.css、site.js、playground.js、feedback.js
 │       └── webui.go         # 模板渲染器 / 嵌入资源
 └── ...
 ```

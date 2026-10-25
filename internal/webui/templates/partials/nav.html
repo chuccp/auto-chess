@@ -12,6 +12,7 @@
     <a href="/games" class="nav-link {{if eq .Active "games"}}active{{end}}">棋种</a>
     <a href="/play" class="nav-link {{if eq .Active "play"}}active{{end}}">对弈</a>
     <a href="/playground" class="nav-link {{if eq .Active "playground"}}active{{end}}">调试</a>
+    <a href="/feedback" class="nav-link {{if eq .Active "feedback"}}active{{end}}">反馈</a>
   </nav>
   <div class="nav-tools">
     <a class="lang-btn" href="{{.LangURL}}" hreflang="{{.OtherLang}}" data-i18n-ignore title="Switch language / 切换语言">{{if eq .Lang "en"}}中文{{else}}EN{{end}}</a>

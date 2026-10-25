@@ -1,0 +1,66 @@
+{{define "feedback"}}<section class="page-hero wrap">
+  <div class="breadcrumb"><a href="/">首页</a><span>/</span><span>意见反馈</span></div>
+  <div class="page-hero-grid">
+    <div>
+      <div class="kicker">FEEDBACK</div>
+      <h1>意见反馈</h1>
+      <p class="lead">使用中遇到问题，或对功能、页面、接口有改进建议？欢迎留言。手机号和邮箱选填，方便我们回复你。</p>
+    </div>
+    <div class="page-hero-aside">
+      <div class="aside-row"><span>验证方式</span><code>按顺序选字</code></div>
+      <div class="aside-row"><span>手机号 / 邮箱</span><code>选填</code></div>
+      <div class="aside-row"><span>回复</span><code>通过留下方式</code></div>
+    </div>
+  </div>
+</section>
+
+<section class="section wrap section-tight">
+  <div class="feedback-layout">
+    <form class="feedback-form" id="feedback-form" novalidate>
+      <label class="fb-field" for="fb-phone">手机号 / 联系方式 <span class="fb-optional">选填</span>
+        <input id="fb-phone" name="phone" type="tel" maxlength="40" autocomplete="tel" placeholder="留个号码，方便回复（选填）">
+      </label>
+      <label class="fb-field" for="fb-email">邮箱 <span class="fb-optional">选填</span>
+        <input id="fb-email" name="email" type="email" maxlength="200" autocomplete="email" placeholder="name@example.com（选填）">
+      </label>
+      <label class="fb-field" for="fb-message">意见与建议 <span class="fb-required">必填</span>
+        <textarea id="fb-message" name="message" maxlength="2000" placeholder="说说遇到的问题，或你希望怎么改进…"></textarea>
+        <span class="fb-counter" id="fb-counter">0 / 2000</span>
+      </label>
+      <p class="fb-error" id="fb-error" role="alert" hidden></p>
+      <div class="fb-actions">
+        <button class="btn btn-primary" id="fb-submit" type="submit">提交反馈 <span>→</span></button>
+        <span class="fb-hint">提交时会弹出一次按顺序选字验证。</span>
+      </div>
+    </form>
+
+    <aside class="feedback-aside">
+      <h2>填写说明</h2>
+      <ul>
+        <li>手机号和邮箱都选填，不会公开展示。</li>
+        <li>反馈会保存到服务端数据库，仅用于改进产品。</li>
+        <li>如果方便，请注明棋种、页面和复现步骤。</li>
+      </ul>
+    </aside>
+  </div>
+</section>
+
+<div class="captcha-modal" id="captcha-modal" hidden aria-hidden="true">
+  <div class="captcha-backdrop" data-captcha-close></div>
+  <div class="captcha-dialog" role="dialog" aria-modal="true" aria-labelledby="captcha-title">
+    <div class="captcha-head">
+      <strong id="captcha-title">安全验证</strong>
+      <button class="captcha-close" type="button" data-captcha-close aria-label="关闭验证">×</button>
+    </div>
+    <p class="captcha-prompt" id="captcha-prompt">请按图片中的提示，依次点击正确的字</p>
+    <div class="captcha-stage" id="captcha-stage">
+      <img class="captcha-image" id="captcha-image" alt="验证码图片" draggable="false">
+      <div class="captcha-hits" id="captcha-hits"></div>
+    </div>
+    <p class="captcha-status" id="captcha-status" role="status" aria-live="polite"></p>
+    <div class="captcha-actions">
+      <button class="btn btn-ghost" id="captcha-refresh" type="button">换一张</button>
+      <button class="btn btn-ghost" id="captcha-reset" type="button">重选</button>
+    </div>
+  </div>
+</div>{{end}}

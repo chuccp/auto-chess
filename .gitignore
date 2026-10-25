@@ -38,4 +38,10 @@ auto-chess.exe
 logs/
 .playwright/
 
+# local config (contains database credentials) and runtime data
+application.yml
+data/
+*.db
+*.db-journal
+
 pikafish.nnue

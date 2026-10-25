@@ -49,10 +49,14 @@ func main() {
 		nnuePath = raw
 	}
 	reg := registry.New(nnuePath)
+	feedbackFile := strings.TrimSpace(cfg.GetString("feedback.file"))
+	if raw := os.Getenv("FEEDBACK_FILE"); raw != "" {
+		feedbackFile = raw
+	}
 	app := wf.NewBuilder(cfg).
 		Filter(&api.CORSFilter{}).
 		Filter(&api.RecoveryFilter{}).
-		Rest(&api.Controller{Registry: reg, Renderer: renderer, StartedAt: time.Now()}).
+		Rest(&api.Controller{Registry: reg, Renderer: renderer, StartedAt: time.Now(), FeedbackFile: feedbackFile}).
 		Build()
 
 	port := cfg.GetIntOrDefault("web.server.port", 19009)
@@ -62,6 +66,7 @@ func main() {
 	fmt.Printf("  文档:   %s/docs\n", baseURL)
 	fmt.Printf("  走子:   POST %s/api/v1/move\n", baseURL)
 	fmt.Printf("  流式:   GET/POST %s/api/v1/move/stream\n", baseURL)
+	fmt.Printf("  反馈:   %s/feedback\n", baseURL)
 	fmt.Printf("  引擎:   chess=chess-3, xiangqi=%s\n", xiangqiEngineLabel(nnuePath))
 	fmt.Printf("  棋类:   %d 种（%v）\n", len(reg.List()), reg.IDs())
 

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chuccp/auto-chess/internal/feedback"
 	"github.com/chuccp/auto-chess/internal/game"
 	"github.com/chuccp/auto-chess/internal/registry"
 	"github.com/chuccp/auto-chess/internal/webui"
@@ -28,6 +29,11 @@ type Controller struct {
 	Registry  *registry.Registry
 	Renderer  *webui.Renderer
 	StartedAt time.Time
+	// FeedbackFile is the JSONL fallback used when web.db is not configured.
+	FeedbackFile string
+
+	captchas      *feedback.CaptchaManager
+	feedbackStore feedback.Store
 }
 
 // Init implements core.IService.
@@ -35,6 +41,13 @@ func (c *Controller) Init(ctx *core.Context) error {
 	if c.StartedAt.IsZero() {
 		c.StartedAt = time.Now()
 	}
+	c.captchas = feedback.NewCaptchaManager()
+	store, err := feedback.NewStoreFromConfig(ctx.GetConfig(), c.FeedbackFile)
+	if err != nil {
+		log.Warn("反馈数据库不可用，改为写入本地文件", zap.Error(err))
+	}
+	c.feedbackStore = store
+
 	ctx.Get("/api/v1/health", c.health)
 	ctx.Get("/api/v1/games", c.listGames)
 	ctx.Get("/api/v1/games/:game", c.gameDetail)
@@ -48,6 +61,9 @@ func (c *Controller) Init(ctx *core.Context) error {
 	ctx.Post("/api/v1/games/:game/move/stream", c.moveStream)
 	ctx.Post("/api/v1/legal-moves", c.legalMoves)
 	ctx.Post("/api/v1/games/:game/legal-moves", c.legalMoves)
+	ctx.Get("/api/v1/captcha", c.captcha)
+	ctx.Get("/api/v1/captcha/:id/image", c.captchaImage)
+	ctx.Post("/api/v1/feedback", c.submitFeedback)
 
 	ctx.Get("/", c.homePage)
 	ctx.Get("/guide", c.guidePage)
@@ -58,10 +74,12 @@ func (c *Controller) Init(ctx *core.Context) error {
 	ctx.Get("/games/:game", c.gamePage)
 	ctx.Get("/play", c.playPage)
 	ctx.Get("/playground", c.playgroundPage)
+	ctx.Get("/feedback", c.feedbackPage)
 	ctx.Get("/assets/app.css", c.asset("app.css", "text/css; charset=utf-8"))
 	ctx.Get("/assets/site.js", c.asset("site.js", "application/javascript; charset=utf-8"))
 	ctx.Get("/assets/play.js", c.asset("play.js", "application/javascript; charset=utf-8"))
 	ctx.Get("/assets/playground.js", c.asset("playground.js", "application/javascript; charset=utf-8"))
+	ctx.Get("/assets/feedback.js", c.asset("feedback.js", "application/javascript; charset=utf-8"))
 	return nil
 }
 
